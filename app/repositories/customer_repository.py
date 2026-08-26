@@ -1,3 +1,47 @@
+# # from app.supabase.client import supabase
+
+
+# # class CustomerRepository:
+
+# #     # =========================================================
+# #     # GET CUSTOMER PROFILE
+# #     # =========================================================
+
+# #     @staticmethod
+# #     def get_profile(user_id: str):
+# #         response = (
+# #             supabase
+# #             .table("profile")
+# #             .select(
+# #                 """
+# #                 id,
+# #                 full_name,
+# #                 email,
+# #                 phone
+# #                 """
+# #             )
+# #             .eq("id", user_id)
+# #             .maybe_single()
+# #             .execute()
+# #         )
+
+# #         return response.data
+
+# #     # =========================================================
+# #     # CHECK CUSTOMER PROFILE EXISTS
+# #     # =========================================================
+
+# #     @staticmethod
+# #     def profile_exists(user_id: str) -> bool:
+# #         profile = (
+# #             CustomerRepository
+# #             .get_profile(user_id)
+# #         )
+
+# #         return profile is not None
+    
+
+
 # from app.supabase.client import supabase
 
 
@@ -17,7 +61,9 @@
 #                 id,
 #                 full_name,
 #                 email,
-#                 phone
+#                 phone,
+#                 address,
+#                 pincode
 #                 """
 #             )
 #             .eq("id", user_id)
@@ -28,28 +74,64 @@
 #         return response.data
 
 #     # =========================================================
-#     # CHECK CUSTOMER PROFILE EXISTS
+#     # CREATE / UPDATE CUSTOMER PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def upsert_profile(
+#         user_id: str,
+#         full_name: str,
+#         phone: str,
+#         address: str,
+#         pincode: str,
+#         email: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .upsert(
+#                 {
+#                     "id": user_id,
+#                     "full_name": full_name or None,
+#                     "email": email or None,
+#                     "phone": phone or None,
+#                     "address": address or None,
+#                     "pincode": pincode or None,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CHECK PROFILE EXISTS
 #     # =========================================================
 
 #     @staticmethod
 #     def profile_exists(user_id: str) -> bool:
-#         profile = (
+#         return (
 #             CustomerRepository
 #             .get_profile(user_id)
+#             is not None
 #         )
 
-#         return profile is not None
-    
+
+
+
+
+
+
+
+
+
+
 
 
 from app.supabase.client import supabase
 
 
 class CustomerRepository:
-
-    # =========================================================
-    # GET CUSTOMER PROFILE
-    # =========================================================
 
     @staticmethod
     def get_profile(user_id: str):
@@ -72,10 +154,6 @@ class CustomerRepository:
         )
 
         return response.data
-
-    # =========================================================
-    # CREATE / UPDATE CUSTOMER PROFILE
-    # =========================================================
 
     @staticmethod
     def upsert_profile(
@@ -104,12 +182,10 @@ class CustomerRepository:
 
         return response.data
 
-    # =========================================================
-    # CHECK PROFILE EXISTS
-    # =========================================================
-
     @staticmethod
-    def profile_exists(user_id: str) -> bool:
+    def profile_exists(
+        user_id: str,
+    ) -> bool:
         return (
             CustomerRepository
             .get_profile(user_id)
