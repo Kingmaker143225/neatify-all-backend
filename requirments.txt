@@ -1,0 +1,12 @@
+python -m pip install --upgrade pip
+pip install fastapi uvicorn
+
+pip install python-dotenv pydantic-settings loguru python-multipart
+
+pip install sqlalchemy psycopg[binary] alembic asyncpg pydantic-settings python-jose[cryptography] passlib[bcrypt] python-multipart email-validator
+
+
+pip install fastapi uvicorn supabase python-dotenv pydantic-settings python-jose[cryptography] passlib[bcrypt] python-multipart email-validator loguru
+
+
+.venv\Scripts\Activate.ps1 
