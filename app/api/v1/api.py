@@ -705,6 +705,11 @@ from app.api.v1.endpoints.customer_auth import (
 from app.api.v1.endpoints.customer_profile import (
     router as customer_profile_router,
 )
+
+
+from app.api.v1.endpoints.customer_services import (
+    router as customer_services_router,
+)
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
@@ -817,4 +822,11 @@ api_router.include_router(
     customer_profile_router,
     prefix="/customer/profile",
     tags=["Customer Profile"],
+)
+
+
+api_router.include_router(
+    customer_services_router,
+    prefix="/customer",
+    tags=["Customer Services"],
 )
