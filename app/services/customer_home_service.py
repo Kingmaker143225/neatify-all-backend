@@ -1,4 +1,5 @@
 from app.supabase.client import supabase
+# from app.config.settings import settings
 
 
 class CustomerHomeService:
@@ -19,9 +20,19 @@ class CustomerHomeService:
             .execute()
         )
 
-        return response.data or []
+        data = response.data or []
 
-
+        return [
+            {
+                "image_url": (
+                    f"https://gdhtydiycsgxcxestwin.supabase.co"
+                    f"/storage/v1/object/public/hero-images/"
+                    f"{item['image_path']}"
+                )
+            }
+            for item in data
+            if item.get("image_path")
+        ]
     # =========================================================
     # POPUPS
     # =========================================================
@@ -39,7 +50,6 @@ class CustomerHomeService:
 
         return response.data or []
 
-
     # =========================================================
     # OFFERS
     # =========================================================
@@ -56,7 +66,6 @@ class CustomerHomeService:
         )
 
         return response.data or []
-
 
     # =========================================================
     # WHY CHOOSE US
