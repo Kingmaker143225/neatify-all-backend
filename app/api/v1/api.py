@@ -722,6 +722,8 @@ from app.api.v1.endpoints.customer_payment import (
 from app.api.v1.endpoints.customer_cart import (
     router as customer_cart_router,
 )
+
+from app.api.v1.endpoints import customer_home
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
@@ -859,4 +861,10 @@ api_router.include_router(
     customer_cart_router,
     prefix="/customer/cart",
     tags=["Customer Cart"],
+)
+
+api_router.include_router(
+    customer_home.router,
+    prefix="/customer",
+    tags=["Customer Home"],
 )

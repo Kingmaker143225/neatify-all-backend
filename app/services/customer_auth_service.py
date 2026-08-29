@@ -627,6 +627,139 @@ class CustomerAuthService:
                 "OTP verified successfully."
             ),
         }
+        # =========================================================
+    # CUSTOMER REWARDS / OFFERS
+    # =========================================================
+
+    @staticmethod
+    def get_rewards(
+        access_token: str,
+    ):
+        user = (
+            CustomerAuthService
+            .get_current_user(
+                access_token
+            )
+        )
+
+        metadata = getattr(
+            user,
+            "user_metadata",
+            None,
+        ) or {}
+
+        return {
+            "show_welcome_reward": bool(
+                metadata.get(
+                    "show_welcome_reward",
+                    False,
+                )
+            ),
+            "welcome_coupon_code": metadata.get(
+                "welcome_coupon_code"
+            ),
+            "show_signup_offer_popup": bool(
+                metadata.get(
+                    "show_signup_offer_popup",
+                    False,
+                )
+            ),
+            "signup_service_title": metadata.get(
+                "signup_service_title"
+            ),
+            "signup_service_id": metadata.get(
+                "signup_service_id"
+            ),
+        }
+
+    @staticmethod
+    def update_rewards(
+        access_token: str,
+        show_welcome_reward: bool | None = None,
+        show_signup_offer_popup: bool | None = None,
+    ):
+        user = (
+            CustomerAuthService
+            .get_current_user(
+                access_token
+            )
+        )
+
+        metadata = getattr(
+            user,
+            "user_metadata",
+            None,
+        ) or {}
+
+        update_data = {}
+
+        if show_welcome_reward is not None:
+            update_data[
+                "show_welcome_reward"
+            ] = show_welcome_reward
+
+        if show_signup_offer_popup is not None:
+            update_data[
+                "show_signup_offer_popup"
+            ] = show_signup_offer_popup
+
+        if update_data:
+            metadata.update(update_data)
+
+            try:
+                response = (
+                    supabase.auth.admin.update_user_by_id(
+                        str(user.id),
+                        {
+                            "user_metadata": metadata
+                        },
+                    )
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to update customer rewards.",
+                ) from exc
+
+            updated_user = getattr(
+                response,
+                "user",
+                None,
+            )
+
+            if updated_user:
+                metadata = (
+                    getattr(
+                        updated_user,
+                        "user_metadata",
+                        None,
+                    )
+                    or metadata
+                )
+
+        return {
+            "show_welcome_reward": bool(
+                metadata.get(
+                    "show_welcome_reward",
+                    False,
+                )
+            ),
+            "welcome_coupon_code": metadata.get(
+                "welcome_coupon_code"
+            ),
+            "show_signup_offer_popup": bool(
+                metadata.get(
+                    "show_signup_offer_popup",
+                    False,
+                )
+            ),
+            "signup_service_title": metadata.get(
+                "signup_service_title"
+            ),
+            "signup_service_id": metadata.get(
+                "signup_service_id"
+            ),
+        }
 
     # =========================================================
     # LOGOUT
