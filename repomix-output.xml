@@ -49,6 +49,8 @@ app/
         booking_reminder.py
         booking.py
         customer_auth.py
+        customer_booking.py
+        customer_payment.py
         customer_profile.py
         customer_services.py
         notification.py
@@ -76,6 +78,8 @@ app/
     auth_repository.py
     availability_repository.py
     booking_reminder_repository.py
+    customer_booking_repository.py
+    customer_payment_repository.py
     customer_repository.py
     customer_service_repository.py
     partner_booking_repository.py
@@ -95,6 +99,8 @@ app/
     auth.py
     availability.py
     customer_auth.py
+    customer_booking.py
+    customer_payment.py
     customer_profile.py
     customer_service.py
     notification.py
@@ -112,6 +118,8 @@ app/
     availability_service.py
     booking_reminder_service.py
     customer_auth_service.py
+    customer_booking_service.py
+    customer_payment_service.py
     customer_profile_service.py
     customer_service_service.py
     notification_service.py
@@ -626,6 +634,89 @@ async def run_booking_reminders():
 
 <file path="app/api/v1/endpoints/booking.py">
 
+</file>
+
+<file path="app/api/v1/endpoints/customer_payment.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.schemas.customer_payment import (
+    CustomerPaymentCreateOrderRequest,
+    CustomerPaymentCreateOrderResponse,
+    CustomerPaymentVerifyRequest,
+    CustomerPaymentVerifyResponse,
+)
+
+from app.services.customer_payment_service import (
+    CustomerPaymentService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# CREATE RAZORPAY ORDER
+# =========================================================
+
+@router.post(
+    "/payment/create-order",
+    response_model=CustomerPaymentCreateOrderResponse,
+)
+async def create_customer_payment_order(
+    request: CustomerPaymentCreateOrderRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user_id = current_customer["user"].id
+
+    return (
+        CustomerPaymentService
+        .create_order(
+            booking_id=request.booking_id,
+            user_id=str(user_id),
+        )
+    )
+
+
+# =========================================================
+# VERIFY RAZORPAY PAYMENT
+# =========================================================
+
+@router.post(
+    "/payment/verify",
+    response_model=CustomerPaymentVerifyResponse,
+)
+async def verify_customer_payment(
+    request: CustomerPaymentVerifyRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user_id = current_customer["user"].id
+
+    return (
+        CustomerPaymentService
+        .verify_payment(
+            booking_id=request.booking_id,
+            user_id=str(user_id),
+            razorpay_order_id=(
+                request.razorpay_order_id
+            ),
+            razorpay_payment_id=(
+                request.razorpay_payment_id
+            ),
+            razorpay_signature=(
+                request.razorpay_signature
+            ),
+        )
+    )
 </file>
 
 <file path="app/api/v1/endpoints/customer_profile.py">
@@ -3141,33 +3232,6 @@ router = APIRouter()
 router.include_router(api_router)
 </file>
 
-<file path="app/config/settings.py">
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class Settings(BaseSettings):
-
-    app_name: str = "Neatify Backend"
-    app_version: str = "1.0.0"
-    environment: str = "development"
-    secret_key: str
-
-    supabase_url: str
-    supabase_anon_key: str
-    supabase_service_role_key: str
-
-    msg91_auth_key: str
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-
-settings = Settings()
-</file>
-
 <file path="app/dependencies/admin.py">
 from fastapi import Depends, HTTPException, status
 from fastapi.security import (
@@ -3917,275 +3981,106 @@ class BookingReminderRepository:
         return response.data
 </file>
 
-<file path="app/repositories/customer_service_repository.py">
+<file path="app/repositories/customer_payment_repository.py">
 from app.supabase.client import supabase
 
 
-class CustomerServiceRepository:
+class CustomerPaymentRepository:
 
     # =========================================================
-    # HELPERS
-    # =========================================================
-
-    @staticmethod
-    def _normalize_tax_percent(service: dict | None):
-        """
-        Normalize tax_percent values returned from Supabase.
-
-        Examples:
-            "4%"  -> 4.0
-            "18%" -> 18.0
-            "4"   -> 4.0
-            4     -> 4.0
-            None  -> None
-        """
-
-        if not service:
-            return service
-
-        value = service.get("tax_percent")
-
-        if value is None:
-            return service
-
-        if isinstance(value, str):
-            value = value.strip()
-
-            # Remove percentage symbol
-            if value.endswith("%"):
-                value = value[:-1].strip()
-
-            if not value:
-                service["tax_percent"] = None
-                return service
-
-            try:
-                service["tax_percent"] = float(value)
-            except (ValueError, TypeError):
-                service["tax_percent"] = None
-
-        elif isinstance(value, (int, float)):
-            service["tax_percent"] = float(value)
-
-        else:
-            service["tax_percent"] = None
-
-        return service
-
-    @staticmethod
-    def _normalize_services(services: list):
-        """
-        Normalize tax_percent for all services.
-        """
-
-        normalized_services = []
-
-        for service in services:
-            normalized_service = (
-                CustomerServiceRepository
-                ._normalize_tax_percent(service)
-            )
-
-            normalized_services.append(
-                normalized_service
-            )
-
-        return normalized_services
-
-    # =========================================================
-    # MAIN CATEGORIES
+    # GET BOOKING FOR PAYMENT
     # =========================================================
 
     @staticmethod
-    def get_main_categories():
+    def get_booking_for_payment(
+        booking_id: str,
+        user_id: str,
+    ):
 
         response = (
             supabase
-            .table("main_categories")
+            .table("bookings")
             .select(
-                "id, name, icon_url, sort_order"
+                """
+                id,
+                user_id,
+                total_amount,
+                payment_status,
+                payment_verified,
+                razorpay_order_id
+                """
             )
-            .order(
-                "sort_order",
-                desc=False,
-            )
-            .execute()
-        )
-
-        return response.data or []
-
-    # =========================================================
-    # SERVICES
-    # =========================================================
-
-    @staticmethod
-    def get_services(
-        main_category_id: str | None = None,
-        service_type: str | None = None,
-    ):
-
-        query = (
-            supabase
-            .table("services")
-            .select("*")
-        )
-
-        if main_category_id:
-            query = query.eq(
-                "main_category_id",
-                main_category_id,
-            )
-
-        if service_type:
-            query = query.eq(
-                "service_type",
-                service_type,
-            )
-
-        response = (
-            query
-            .order(
-                "sort_order",
-                desc=False,
-            )
-            .execute()
-        )
-
-        services = response.data or []
-
-        # -----------------------------------------------------
-        # TEMPORARY DEBUG
-        # -----------------------------------------------------
-
-        # print(
-        #     "🔥 RAW TAX:",
-        #     [
-        #         service.get("tax_percent")
-        #         for service in services
-        #     ],
-        # )
-
-        # normalized_services = (
-        #     CustomerServiceRepository
-        #     ._normalize_services(
-        #         services
-        #     )
-        # )
-
-        # print(
-        #     "🔥 NORMALIZED TAX:",
-        #     [
-        #         service.get("tax_percent")
-        #         for service in normalized_services
-        #     ],
-        # )
-
-        # return normalized_services
-
-        services = response.data or []
-
-        return (
-            CustomerServiceRepository
-            ._normalize_services(
-                services
-            )
-        )
-
-    # =========================================================
-    # SERVICE BY ID
-    # =========================================================
-
-    @staticmethod
-    def get_service_by_id(
-        service_id: str,
-    ):
-
-        response = (
-            supabase
-            .table("services")
-            .select("*")
-            .eq(
-                "id",
-                service_id,
-            )
+            .eq("id", booking_id)
+            .eq("user_id", user_id)
             .maybe_single()
             .execute()
         )
 
-        service = response.data
-
-        return (
-            CustomerServiceRepository
-            ._normalize_tax_percent(
-                service
-            )
-        )
+        return response.data
 
     # =========================================================
-    # SERVICE BY SLUG
+    # SAVE RAZORPAY ORDER
     # =========================================================
 
     @staticmethod
-    def get_service_by_slug(
-        slug: str,
+    def save_razorpay_order(
+        booking_id: str,
+        user_id: str,
+        razorpay_order_id: str,
     ):
 
         response = (
             supabase
-            .table("services")
-            .select("*")
-            .eq(
-                "slug",
-                slug,
+            .table("bookings")
+            .update(
+                {
+                    "razorpay_order_id": razorpay_order_id,
+                    "payment_status": "pending",
+                    "payment_verified": False,
+                }
             )
-            .maybe_single()
+            .eq("id", booking_id)
+            .eq("user_id", user_id)
             .execute()
         )
 
-        service = response.data
-
-        return (
-            CustomerServiceRepository
-            ._normalize_tax_percent(
-                service
-            )
-        )
+        return response.data[0] if response.data else None
 
     # =========================================================
-    # ADD-ONS
+    # COMPLETE PAYMENT
     # =========================================================
 
     @staticmethod
-    def get_active_addons(
-        service_type: str | None = None,
+    def complete_payment(
+        booking_id: str,
+        user_id: str,
+        razorpay_order_id: str,
+        razorpay_payment_id: str,
+        razorpay_signature: str,
+        payment_method: str | None = None,
     ):
 
-        query = (
-            supabase
-            .table("add_ons")
-            .select("*")
-            .eq(
-                "is_active",
-                True,
-            )
-        )
+        data = {
+            "razorpay_order_id": razorpay_order_id,
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_signature": razorpay_signature,
+            "payment_status": "paid",
+            "payment_verified": True,
+        }
 
-        if service_type:
-            query = query.ilike(
-                "service_type",
-                service_type.strip(),
-            )
+        if payment_method:
+            data["payment_method"] = payment_method
 
         response = (
-            query
-            .order(
-                "sort_order",
-                desc=False,
-            )
+            supabase
+            .table("bookings")
+            .update(data)
+            .eq("id", booking_id)
+            .eq("user_id", user_id)
             .execute()
         )
 
-        return response.data or []
+        return response.data[0] if response.data else None
 </file>
 
 <file path="app/repositories/partner_booking_repository.py">
@@ -8610,6 +8505,39 @@ class AvailabilitySaveRequest(BaseModel):
     calendar_data: Dict[str, str]
 </file>
 
+<file path="app/schemas/customer_payment.py">
+from pydantic import BaseModel, Field
+
+
+class CustomerPaymentCreateOrderRequest(BaseModel):
+    booking_id: str
+
+
+class CustomerPaymentCreateOrderResponse(BaseModel):
+    success: bool
+    booking_id: str
+    razorpay_order_id: str
+    amount: int
+    currency: str
+    razorpay_key_id: str
+
+
+class CustomerPaymentVerifyRequest(BaseModel):
+    booking_id: str
+
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+class CustomerPaymentVerifyResponse(BaseModel):
+    success: bool
+    booking_id: str
+    payment_status: str
+    payment_verified: bool
+    message: str
+</file>
+
 <file path="app/schemas/customer_profile.py">
 from pydantic import BaseModel, Field
 
@@ -8632,76 +8560,6 @@ class CustomerProfileUpdateRequest(BaseModel):
     phone: str
     address: str = ""
     pincode: str = ""
-</file>
-
-<file path="app/schemas/customer_service.py">
-from pydantic import BaseModel
-from typing import Any
-
-
-class CustomerMainCategoryResponse(BaseModel):
-    id: str
-    name: str
-    icon_url: str | None = None
-    sort_order: int | None = None
-
-
-class CustomerServiceResponse(BaseModel):
-    id: str
-    slug: str | None = None
-    title: str
-    service_type: str | None = None
-    main_category_id: str | None = None
-
-    category_order: int | None = None
-    duration: str | None = None
-    price: str | None = None
-
-    image: str | None = None
-    gallery_images: list[str] | None = None
-    image2: Any | None = None
-
-    description: str | None = None
-
-    sort_order: int | None = None
-
-    original_price: str | None = None
-    discount_percent: float | None = None
-    discount_label: str | None = None
-
-    tax_percent: float | None = None
-
-    work_includes: str | None = None
-    work_not_included: str | None = None
-
-    category_icon_url: str | None = None
-
-    how_it_works: Any | None = None
-
-
-class CustomerAddOnResponse(BaseModel):
-    id: str
-    title: str
-    duration: int | None = None
-    price: str | None = None
-
-    image: str | None = None
-    service_type: str | None = None
-    description: str | None = None
-
-    sort_order: int | None = None
-
-    original_price: str | None = None
-    discount_percent: float | None = None
-    discount_label: str | None = None
-
-    work_includes: str | None = None
-    work_not_included: str | None = None
-
-    tax_percent: float | None = None
-    max_quantity: int | None = None
-
-    is_active: bool | None = None
 </file>
 
 <file path="app/schemas/notification.py">
@@ -9733,6 +9591,307 @@ class BookingReminderService:
             "sent": sent,
             "skipped": skipped,
             "errors": errors,
+        }
+</file>
+
+<file path="app/services/customer_payment_service.py">
+import razorpay
+
+from fastapi import HTTPException, status
+
+from app.config.settings import settings
+
+from app.repositories.customer_payment_repository import (
+    CustomerPaymentRepository,
+)
+
+
+class CustomerPaymentService:
+
+    # =========================================================
+    # RAZORPAY CLIENT
+    # =========================================================
+
+    @staticmethod
+    def get_razorpay_client():
+
+        if not settings.razorpay_key_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Razorpay key ID is not configured.",
+            )
+
+        if not settings.razorpay_key_secret:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Razorpay secret key is not configured.",
+            )
+
+        return razorpay.Client(
+            auth=(
+                settings.razorpay_key_id,
+                settings.razorpay_key_secret,
+            )
+        )
+
+    # =========================================================
+    # CREATE ORDER
+    # =========================================================
+
+    @staticmethod
+    def create_order(
+        booking_id: str,
+        user_id: str,
+    ):
+
+        booking = (
+            CustomerPaymentRepository
+            .get_booking_for_payment(
+                booking_id=booking_id,
+                user_id=user_id,
+            )
+        )
+
+        if not booking:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Booking not found.",
+            )
+
+        if booking.get("payment_verified"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment is already completed.",
+            )
+
+        total_amount = booking.get(
+            "total_amount"
+        )
+
+        if total_amount is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Booking amount is missing.",
+            )
+
+        if float(total_amount) <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid booking amount.",
+            )
+
+        # Razorpay accepts amount in paise.
+        amount_paise = int(
+            round(float(total_amount) * 100)
+        )
+
+        client = (
+            CustomerPaymentService
+            .get_razorpay_client()
+        )
+
+        try:
+
+            razorpay_order = client.order.create(
+                {
+                    "amount": amount_paise,
+                    "currency": "INR",
+                    "receipt": str(booking_id),
+                    "notes": {
+                        "booking_id": str(
+                            booking_id
+                        ),
+                        "user_id": str(
+                            user_id
+                        ),
+                    },
+                }
+            )
+
+        # except Exception as exc:
+
+        #     print(
+        #         "❌ Razorpay order creation failed:",
+        #         str(exc),
+        #     )
+
+        #     raise HTTPException(
+        #         status_code=status.HTTP_502_BAD_GATEWAY,
+        #         detail="Unable to create Razorpay order.",
+        #     ) from exc
+        
+        # except Exception as exc:
+        #     print(
+        #         "RAZORPAY ORDER ERROR:",
+        #         repr(exc),
+        #     )
+
+        #     raise HTTPException(
+        #         status_code=status.HTTP_502_BAD_GATEWAY,
+        #         detail="Unable to create Razorpay order.",
+        #     ) from 
+        except Exception as exc:
+            print("========================================")
+            print("RAZORPAY ERROR:", repr(exc))
+            print("RAZORPAY ERROR TYPE:", type(exc).__name__)
+            print("========================================")
+
+            raise HTTPException(
+                status_code=502,
+                detail=f"Unable to create Razorpay order: {exc}",
+            ) from exc
+
+        razorpay_order_id = razorpay_order.get(
+            "id"
+        )
+
+        if not razorpay_order_id:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Razorpay did not return an order ID.",
+            )
+
+        saved_booking = (
+            CustomerPaymentRepository
+            .save_razorpay_order(
+                booking_id=booking_id,
+                user_id=user_id,
+                razorpay_order_id=razorpay_order_id,
+            )
+        )
+
+        if not saved_booking:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Razorpay order created but booking could not be updated.",
+            )
+
+        return {
+            "success": True,
+            "booking_id": str(booking_id),
+            "razorpay_order_id": razorpay_order_id,
+            "amount": amount_paise,
+            "currency": "INR",
+            "razorpay_key_id": settings.razorpay_key_id,
+        }
+
+    # =========================================================
+    # VERIFY PAYMENT
+    # =========================================================
+
+    @staticmethod
+    def verify_payment(
+        booking_id: str,
+        user_id: str,
+        razorpay_order_id: str,
+        razorpay_payment_id: str,
+        razorpay_signature: str,
+    ):
+
+        booking = (
+            CustomerPaymentRepository
+            .get_booking_for_payment(
+                booking_id=booking_id,
+                user_id=user_id,
+            )
+        )
+
+        if not booking:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Booking not found.",
+            )
+
+        stored_order_id = booking.get(
+            "razorpay_order_id"
+        )
+
+        if not stored_order_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No Razorpay order exists for this booking.",
+            )
+
+        if stored_order_id != razorpay_order_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Razorpay order does not match booking.",
+            )
+
+        if not razorpay_payment_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Razorpay payment ID is required.",
+            )
+
+        if not razorpay_signature:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Razorpay signature is required.",
+            )
+
+        client = (
+            CustomerPaymentService
+            .get_razorpay_client()
+        )
+
+        try:
+
+            client.utility.verify_payment_signature(
+                {
+                    "razorpay_order_id": (
+                        razorpay_order_id
+                    ),
+                    "razorpay_payment_id": (
+                        razorpay_payment_id
+                    ),
+                    "razorpay_signature": (
+                        razorpay_signature
+                    ),
+                }
+            )
+
+        except Exception as exc:
+
+            print(
+                "❌ Razorpay signature verification failed:",
+                str(exc),
+            )
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment verification failed.",
+            ) from exc
+
+        updated_booking = (
+            CustomerPaymentRepository
+            .complete_payment(
+                booking_id=booking_id,
+                user_id=user_id,
+                razorpay_order_id=(
+                    razorpay_order_id
+                ),
+                razorpay_payment_id=(
+                    razorpay_payment_id
+                ),
+                razorpay_signature=(
+                    razorpay_signature
+                ),
+            )
+        )
+
+        if not updated_booking:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Payment verified but booking could not be updated.",
+            )
+
+        return {
+            "success": True,
+            "booking_id": str(booking_id),
+            "payment_status": "paid",
+            "payment_verified": True,
+            "message": "Payment verified successfully.",
         }
 </file>
 
@@ -20979,48 +21138,6 @@ C:.
 \---tests
 </file>
 
-<file path="requirements.txt">
-# python -m pip install --upgrade pip
-# pip install fastapi uvicorn
-
-# pip install python-dotenv pydantic-settings loguru python-multipart
-
-# pip install sqlalchemy psycopg[binary] alembic asyncpg pydantic-settings python-jose[cryptography] passlib[bcrypt] python-multipart email-validator
-
-
-# pip install fastapi uvicorn supabase python-dotenv pydantic-settings python-jose[cryptography] passlib[bcrypt] python-multipart email-validator loguru
-
-
-
-
-
-
-
-
-
-
-
-fastapi
-uvicorn[standard]
-python-dotenv
-pydantic-settings
-loguru
-python-multipart
-
-sqlalchemy
-psycopg[binary]
-asyncpg
-alembic
-
-python-jose[cryptography]
-passlib[bcrypt]
-email-validator
-
-supabase
-
-httpx
-</file>
-
 <file path="requirments.txt">
 python -m pip install --upgrade pip
 pip install fastapi uvicorn
@@ -21287,6 +21404,1220 @@ async def customer_logout(
     )
 </file>
 
+<file path="app/api/v1/endpoints/customer_booking.py">
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_booking import (
+#     CustomerBookingCreateRequest,
+#     CustomerBookingResponse,
+# )
+
+# from app.services.customer_booking_service import (
+#     CustomerBookingService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CREATE CUSTOMER BOOKING
+# # =========================================================
+
+# @router.post(
+#     "/bookings",
+#     response_model=CustomerBookingResponse,
+# )
+# async def create_customer_booking(
+#     request: CustomerBookingCreateRequest,
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+
+#     user_id = current_customer["user"].id
+
+#     return (
+#         CustomerBookingService
+#         .create_booking(
+#             user_id=str(user_id),
+#             customer_name=request.customer_name,
+#             email=request.email,
+#             phone_number=request.phone_number,
+#             full_address=request.full_address,
+#             services=request.services,
+#             booking_date=str(
+#                 request.booking_date
+#             ),
+#             booking_time=request.booking_time,
+#             total_amount=request.total_amount,
+#         )
+#     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.schemas.customer_booking import (
+    CustomerBookingCreateRequest,
+    CustomerBookingResponse,
+)
+
+from app.services.customer_booking_service import (
+    CustomerBookingService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# CREATE CUSTOMER BOOKING
+# =========================================================
+
+@router.post(
+    "/bookings",
+    response_model=CustomerBookingResponse,
+)
+async def create_customer_booking(
+    request: CustomerBookingCreateRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user_id = current_customer["user"].id
+
+    return (
+        CustomerBookingService
+        .create_booking(
+            user_id=str(user_id),
+
+            customer_name=request.customer_name,
+
+            email=str(request.email),
+
+            phone_number=request.phone_number,
+
+            full_address=request.full_address,
+
+            services=request.services,
+
+            add_ons=request.add_ons,
+
+            booking_date=request.booking_date,
+
+            booking_time=request.booking_time,
+
+            latitude=request.latitude,
+
+            longitude=request.longitude,
+
+            location_link=request.location_link,
+        )
+    )
+</file>
+
+<file path="app/config/settings.py">
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+
+    app_name: str = "Neatify Backend"
+    app_version: str = "1.0.0"
+    environment: str = "development"
+    secret_key: str
+
+    supabase_url: str
+    supabase_anon_key: str
+    supabase_service_role_key: str
+
+    msg91_auth_key: str
+
+    razorpay_key_id: str
+    razorpay_key_secret: str
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+settings = Settings()
+</file>
+
+<file path="app/repositories/customer_booking_repository.py">
+# from app.supabase.client import supabase
+
+
+# class CustomerBookingRepository:
+
+#     # =========================================================
+#     # CREATE BOOKING
+#     # =========================================================
+
+#     @staticmethod
+#     def create_booking(
+#         customer_name: str,
+#         email: str,
+#         phone_number: str,
+#         full_address: str,
+#         services,
+#         booking_date: str,
+#         booking_time: str,
+#         total_amount: float,
+#         user_id: str,
+#     ):
+
+#         response = (
+#             supabase
+#             .table("bookings")
+#             .insert(
+#                 {
+#                     "customer_name": customer_name,
+#                     "email": email,
+#                     "phone_number": phone_number,
+#                     "full_address": full_address,
+#                     "services": services,
+#                     "booking_date": booking_date,
+#                     "booking_time": booking_time,
+#                     "total_amount": total_amount,
+#                     "user_id": user_id,
+
+#                     # Payment starts as unpaid.
+#                     "payment_status": "pending",
+#                     "payment_verified": False,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data[0] if response.data else None
+
+#     # =========================================================
+#     # GET BOOKING
+#     # =========================================================
+
+#     @staticmethod
+#     def get_booking(
+#         booking_id: str,
+#         user_id: str,
+#     ):
+
+#         response = (
+#             supabase
+#             .table("bookings")
+#             .select("*")
+#             .eq("id", booking_id)
+#             .eq("user_id", user_id)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # UPDATE RAZORPAY ORDER
+#     # =========================================================
+
+#     @staticmethod
+#     def set_razorpay_order(
+#         booking_id: str,
+#         user_id: str,
+#         razorpay_order_id: str,
+#     ):
+
+#         response = (
+#             supabase
+#             .table("bookings")
+#             .update(
+#                 {
+#                     "razorpay_order_id": razorpay_order_id,
+#                     "payment_status": "pending",
+#                     "payment_verified": False,
+#                 }
+#             )
+#             .eq("id", booking_id)
+#             .eq("user_id", user_id)
+#             .execute()
+#         )
+
+#         return response.data[0] if response.data else None
+
+#     # =========================================================
+#     # MARK PAYMENT SUCCESS
+#     # =========================================================
+
+#     @staticmethod
+#     def mark_payment_success(
+#         booking_id: str,
+#         user_id: str,
+#         razorpay_order_id: str,
+#         razorpay_payment_id: str,
+#         razorpay_signature: str,
+#         payment_method: str | None = None,
+#     ):
+
+#         update_data = {
+#             "razorpay_order_id": razorpay_order_id,
+#             "razorpay_payment_id": razorpay_payment_id,
+#             "razorpay_signature": razorpay_signature,
+#             "payment_status": "paid",
+#             "payment_verified": True,
+#         }
+
+#         if payment_method:
+#             update_data["payment_method"] = payment_method
+
+#         response = (
+#             supabase
+#             .table("bookings")
+#             .update(update_data)
+#             .eq("id", booking_id)
+#             .eq("user_id", user_id)
+#             .execute()
+#         )
+
+#         return response.data[0] if response.data else None
+
+#     # =========================================================
+#     # MARK PAYMENT FAILED
+#     # =========================================================
+
+#     @staticmethod
+#     def mark_payment_failed(
+#         booking_id: str,
+#         user_id: str,
+#     ):
+
+#         response = (
+#             supabase
+#             .table("bookings")
+#             .update(
+#                 {
+#                     "payment_status": "failed",
+#                     "payment_verified": False,
+#                 }
+#             )
+#             .eq("id", booking_id)
+#             .eq("user_id", user_id)
+#             .execute()
+#         )
+
+#         return response.data[0] if response.data else None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from app.supabase.client import supabase
+
+
+class CustomerBookingRepository:
+
+    # =========================================================
+    # GET SERVICES BY IDS
+    # =========================================================
+
+    @staticmethod
+    def get_services_by_ids(
+        service_ids: list[str],
+    ):
+
+        if not service_ids:
+            return []
+
+        response = (
+            supabase
+            .table("services")
+            .select(
+                "id, title, price, tax_percent"
+            )
+            .in_(
+                "id",
+                service_ids,
+            )
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # GET ADD-ONS BY IDS
+    # =========================================================
+
+    @staticmethod
+    def get_addons_by_ids(
+        addon_ids: list[str],
+    ):
+
+        if not addon_ids:
+            return []
+
+        response = (
+            supabase
+            .table("add_ons")
+            .select(
+                "id, title, price"
+            )
+            .in_(
+                "id",
+                addon_ids,
+            )
+            .eq(
+                "is_active",
+                True,
+            )
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # CREATE BOOKING
+    # =========================================================
+
+    @staticmethod
+    def create_booking(
+        customer_name: str,
+        email: str,
+        phone_number: str,
+        full_address: str,
+        services,
+        add_ons,
+        booking_date: str,
+        booking_time: str,
+        total_amount: float,
+        user_id: str,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        location_link: str | None = None,
+    ):
+
+        insert_data = {
+            "customer_name": customer_name,
+
+            "email": email,
+
+            "phone_number": phone_number,
+
+            "full_address": full_address,
+
+            "services": services,
+
+            "booking_date": booking_date,
+
+            "booking_time": booking_time,
+
+            "total_amount": total_amount,
+
+            "user_id": user_id,
+
+            "payment_status": "pending",
+
+            "payment_verified": False,
+        }
+
+        # =====================================================
+        # ADD-ONS
+        # =====================================================
+
+        # Only add this if your bookings table has
+        # an "add_ons" JSON/JSONB column.
+        #
+        # If the column exists, this will store the
+        # normalized add-ons separately.
+
+        if add_ons:
+            insert_data["add_ons"] = add_ons
+
+        # =====================================================
+        # LOCATION
+        # =====================================================
+
+        if latitude is not None:
+            insert_data["latitude"] = latitude
+
+        if longitude is not None:
+            insert_data["longitude"] = longitude
+
+        if location_link:
+            insert_data["location_link"] = (
+                location_link
+            )
+
+        # =====================================================
+        # INSERT
+        # =====================================================
+
+        response = (
+            supabase
+            .table("bookings")
+            .insert(
+                insert_data
+            )
+            .execute()
+        )
+
+        return (
+            response.data[0]
+            if response.data
+            else None
+        )
+
+    # =========================================================
+    # GET BOOKING
+    # =========================================================
+
+    @staticmethod
+    def get_booking(
+        booking_id: str,
+        user_id: str,
+    ):
+
+        response = (
+            supabase
+            .table("bookings")
+            .select("*")
+            .eq(
+                "id",
+                booking_id,
+            )
+            .eq(
+                "user_id",
+                user_id,
+            )
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # UPDATE RAZORPAY ORDER
+    # =========================================================
+
+    @staticmethod
+    def set_razorpay_order(
+        booking_id: str,
+        user_id: str,
+        razorpay_order_id: str,
+    ):
+
+        response = (
+            supabase
+            .table("bookings")
+            .update(
+                {
+                    "razorpay_order_id":
+                        razorpay_order_id,
+
+                    "payment_status":
+                        "pending",
+
+                    "payment_verified":
+                        False,
+                }
+            )
+            .eq(
+                "id",
+                booking_id,
+            )
+            .eq(
+                "user_id",
+                user_id,
+            )
+            .execute()
+        )
+
+        return (
+            response.data[0]
+            if response.data
+            else None
+        )
+
+    # =========================================================
+    # MARK PAYMENT SUCCESS
+    # =========================================================
+
+    @staticmethod
+    def mark_payment_success(
+        booking_id: str,
+        user_id: str,
+        razorpay_order_id: str,
+        razorpay_payment_id: str,
+        razorpay_signature: str,
+        payment_method: str | None = None,
+    ):
+
+        update_data = {
+            "razorpay_order_id":
+                razorpay_order_id,
+
+            "razorpay_payment_id":
+                razorpay_payment_id,
+
+            "razorpay_signature":
+                razorpay_signature,
+
+            "payment_status":
+                "paid",
+
+            "payment_verified":
+                True,
+        }
+
+        if payment_method:
+            update_data[
+                "payment_method"
+            ] = payment_method
+
+        response = (
+            supabase
+            .table("bookings")
+            .update(
+                update_data
+            )
+            .eq(
+                "id",
+                booking_id,
+            )
+            .eq(
+                "user_id",
+                user_id,
+            )
+            .execute()
+        )
+
+        return (
+            response.data[0]
+            if response.data
+            else None
+        )
+
+    # =========================================================
+    # MARK PAYMENT FAILED
+    # =========================================================
+
+    @staticmethod
+    def mark_payment_failed(
+        booking_id: str,
+        user_id: str,
+    ):
+
+        response = (
+            supabase
+            .table("bookings")
+            .update(
+                {
+                    "payment_status":
+                        "failed",
+
+                    "payment_verified":
+                        False,
+                }
+            )
+            .eq(
+                "id",
+                booking_id,
+            )
+            .eq(
+                "user_id",
+                user_id,
+            )
+            .execute()
+        )
+
+        return (
+            response.data[0]
+            if response.data
+            else None
+        )
+</file>
+
+<file path="app/repositories/customer_service_repository.py">
+# from app.supabase.client import supabase
+
+
+# class CustomerServiceRepository:
+
+#     # =========================================================
+#     # HELPERS
+#     # =========================================================
+
+#     @staticmethod
+#     def _normalize_tax_percent(service: dict | None):
+#         """
+#         Normalize tax_percent values returned from Supabase.
+
+#         Examples:
+#             "4%"  -> 4.0
+#             "18%" -> 18.0
+#             "4"   -> 4.0
+#             4     -> 4.0
+#             None  -> None
+#         """
+
+#         if not service:
+#             return service
+
+#         value = service.get("tax_percent")
+
+#         if value is None:
+#             return service
+
+#         if isinstance(value, str):
+#             value = value.strip()
+
+#             # Remove percentage symbol
+#             if value.endswith("%"):
+#                 value = value[:-1].strip()
+
+#             if not value:
+#                 service["tax_percent"] = None
+#                 return service
+
+#             try:
+#                 service["tax_percent"] = float(value)
+#             except (ValueError, TypeError):
+#                 service["tax_percent"] = None
+
+#         elif isinstance(value, (int, float)):
+#             service["tax_percent"] = float(value)
+
+#         else:
+#             service["tax_percent"] = None
+
+#         return service
+
+#     @staticmethod
+#     def _normalize_services(services: list):
+#         """
+#         Normalize tax_percent for all services.
+#         """
+
+#         normalized_services = []
+
+#         for service in services:
+#             normalized_service = (
+#                 CustomerServiceRepository
+#                 ._normalize_tax_percent(service)
+#             )
+
+#             normalized_services.append(
+#                 normalized_service
+#             )
+
+#         return normalized_services
+
+#     # =========================================================
+#     # MAIN CATEGORIES
+#     # =========================================================
+
+#     @staticmethod
+#     def get_main_categories():
+
+#         response = (
+#             supabase
+#             .table("main_categories")
+#             .select(
+#                 "id, name, icon_url, sort_order"
+#             )
+#             .order(
+#                 "sort_order",
+#                 desc=False,
+#             )
+#             .execute()
+#         )
+
+#         return response.data or []
+
+#     # =========================================================
+#     # SERVICES
+#     # =========================================================
+
+#     @staticmethod
+#     def get_services(
+#         main_category_id: str | None = None,
+#         service_type: str | None = None,
+#     ):
+
+#         query = (
+#             supabase
+#             .table("services")
+#             .select("*")
+#         )
+
+#         if main_category_id:
+#             query = query.eq(
+#                 "main_category_id",
+#                 main_category_id,
+#             )
+
+#         if service_type:
+#             query = query.eq(
+#                 "service_type",
+#                 service_type,
+#             )
+
+#         response = (
+#             query
+#             .order(
+#                 "sort_order",
+#                 desc=False,
+#             )
+#             .execute()
+#         )
+
+#         services = response.data or []
+
+#         # -----------------------------------------------------
+#         # TEMPORARY DEBUG
+#         # -----------------------------------------------------
+
+#         # print(
+#         #     "🔥 RAW TAX:",
+#         #     [
+#         #         service.get("tax_percent")
+#         #         for service in services
+#         #     ],
+#         # )
+
+#         # normalized_services = (
+#         #     CustomerServiceRepository
+#         #     ._normalize_services(
+#         #         services
+#         #     )
+#         # )
+
+#         # print(
+#         #     "🔥 NORMALIZED TAX:",
+#         #     [
+#         #         service.get("tax_percent")
+#         #         for service in normalized_services
+#         #     ],
+#         # )
+
+#         # return normalized_services
+
+#         services = response.data or []
+
+#         return (
+#             CustomerServiceRepository
+#             ._normalize_services(
+#                 services
+#             )
+#         )
+
+#     # =========================================================
+#     # SERVICE BY ID
+#     # =========================================================
+
+#     @staticmethod
+#     def get_service_by_id(
+#         service_id: str,
+#     ):
+
+#         response = (
+#             supabase
+#             .table("services")
+#             .select("*")
+#             .eq(
+#                 "id",
+#                 service_id,
+#             )
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         service = response.data
+
+#         return (
+#             CustomerServiceRepository
+#             ._normalize_tax_percent(
+#                 service
+#             )
+#         )
+
+#     # =========================================================
+#     # SERVICE BY SLUG
+#     # =========================================================
+
+#     @staticmethod
+#     def get_service_by_slug(
+#         slug: str,
+#     ):
+
+#         response = (
+#             supabase
+#             .table("services")
+#             .select("*")
+#             .eq(
+#                 "slug",
+#                 slug,
+#             )
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         service = response.data
+
+#         return (
+#             CustomerServiceRepository
+#             ._normalize_tax_percent(
+#                 service
+#             )
+#         )
+
+#     # =========================================================
+#     # ADD-ONS
+#     # =========================================================
+
+#     @staticmethod
+#     def get_active_addons(
+#         service_type: str | None = None,
+#     ):
+
+#         query = (
+#             supabase
+#             .table("add_ons")
+#             .select("*")
+#             .eq(
+#                 "is_active",
+#                 True,
+#             )
+#         )
+
+#         if service_type:
+#             query = query.ilike(
+#                 "service_type",
+#                 service_type.strip(),
+#             )
+
+#         response = (
+#             query
+#             .order(
+#                 "sort_order",
+#                 desc=False,
+#             )
+#             .execute()
+#         )
+
+#         return response.data or []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from app.supabase.client import supabase
+
+
+class CustomerServiceRepository:
+
+    # =========================================================
+    # CONSTANTS
+    # =========================================================
+
+    SERVICE_COLUMNS = """
+        id,
+        title,
+        price,
+        service_type,
+        main_category_id,
+        slug,
+        sort_order,
+        tax_percent
+    """
+
+    # =========================================================
+    # HELPERS
+    # =========================================================
+
+    @staticmethod
+    def _normalize_tax_percent(service: dict | None):
+        """
+        Normalize tax_percent returned from Supabase.
+
+        Examples:
+            "4%"  -> 4.0
+            "18%" -> 18.0
+            "4"   -> 4.0
+            4     -> 4.0
+            None  -> None
+        """
+
+        if not service:
+            return service
+
+        value = service.get("tax_percent")
+
+        if value is None:
+            return service
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value.endswith("%"):
+                value = value[:-1].strip()
+
+            if not value:
+                service["tax_percent"] = None
+                return service
+
+            try:
+                service["tax_percent"] = float(value)
+            except (ValueError, TypeError):
+                service["tax_percent"] = None
+
+        elif isinstance(value, (int, float)):
+            service["tax_percent"] = float(value)
+
+        else:
+            service["tax_percent"] = None
+
+        return service
+
+    @staticmethod
+    def _normalize_services(services: list):
+        """
+        Normalize tax_percent for all services.
+        """
+
+        return [
+            CustomerServiceRepository._normalize_tax_percent(service)
+            for service in services
+        ]
+
+    # =========================================================
+    # MAIN CATEGORIES
+    # =========================================================
+
+    @staticmethod
+    def get_main_categories():
+
+        response = (
+            supabase
+            .table("main_categories")
+            .select(
+                "id, name, icon_url, sort_order"
+            )
+            .order(
+                "sort_order",
+                desc=False,
+            )
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # SERVICES
+    # =========================================================
+
+    @staticmethod
+    def get_services(
+        main_category_id: str | None = None,
+        service_type: str | None = None,
+    ):
+
+        query = (
+            supabase
+            .table("services")
+            .select(
+                CustomerServiceRepository.SERVICE_COLUMNS
+            )
+        )
+
+        # Filter by main category
+        if main_category_id:
+            query = query.eq(
+                "main_category_id",
+                main_category_id,
+            )
+
+        # Filter by service type
+        if service_type:
+            query = query.eq(
+                "service_type",
+                service_type,
+            )
+
+        response = (
+            query
+            .order(
+                "sort_order",
+                desc=False,
+            )
+            .execute()
+        )
+
+        services = response.data or []
+
+        return (
+            CustomerServiceRepository
+            ._normalize_services(services)
+        )
+
+    # =========================================================
+    # SERVICE BY ID
+    # =========================================================
+
+    @staticmethod
+    def get_service_by_id(
+        service_id: str,
+    ):
+
+        response = (
+            supabase
+            .table("services")
+            .select(
+                CustomerServiceRepository.SERVICE_COLUMNS
+            )
+            .eq(
+                "id",
+                service_id,
+            )
+            .maybe_single()
+            .execute()
+        )
+
+        service = response.data
+
+        return (
+            CustomerServiceRepository
+            ._normalize_tax_percent(
+                service
+            )
+        )
+
+    # =========================================================
+    # SERVICE BY SLUG
+    # =========================================================
+
+    @staticmethod
+    def get_service_by_slug(
+        slug: str,
+    ):
+
+        response = (
+            supabase
+            .table("services")
+            .select(
+                CustomerServiceRepository.SERVICE_COLUMNS
+            )
+            .eq(
+                "slug",
+                slug,
+            )
+            .maybe_single()
+            .execute()
+        )
+
+        service = response.data
+
+        return (
+            CustomerServiceRepository
+            ._normalize_tax_percent(
+                service
+            )
+        )
+
+    # =========================================================
+    # ADD-ONS
+    # =========================================================
+
+    @staticmethod
+    def get_active_addons(
+        service_type: str | None = None,
+    ):
+
+        query = (
+            supabase
+            .table("add_ons")
+            .select("*")
+            .eq(
+                "is_active",
+                True,
+            )
+        )
+
+        if service_type:
+            query = query.ilike(
+                "service_type",
+                service_type.strip(),
+            )
+
+        response = (
+            query
+            .order(
+                "sort_order",
+                desc=False,
+            )
+            .execute()
+        )
+
+        return response.data or []
+</file>
+
 <file path="app/schemas/customer_auth.py">
 # from pydantic import BaseModel, EmailStr
 
@@ -21425,6 +22756,356 @@ class CustomerVerifyOtpResponse(BaseModel):
 class CustomerLogoutResponse(BaseModel):
     success: bool
     message: str
+</file>
+
+<file path="app/schemas/customer_booking.py">
+# from datetime import date
+# from typing import Any
+
+# from pydantic import BaseModel, Field
+
+
+# class CustomerBookingCreateRequest(BaseModel):
+#     customer_name: str = Field(..., min_length=1, max_length=150)
+#     email: str = Field(..., min_length=3, max_length=255)
+#     phone_number: str = Field(..., min_length=10, max_length=15)
+
+#     full_address: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=1000,
+#     )
+
+#     services: Any
+
+#     booking_date: date
+#     booking_time: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=50,
+#     )
+
+#     total_amount: float = Field(
+#         ...,
+#         gt=0,
+#     )
+
+
+# class CustomerBookingResponse(BaseModel):
+#     success: bool
+#     booking_id: str
+#     message: str
+#     payment_status: str
+#     payment_verified: bool
+
+
+
+
+
+
+
+
+
+
+
+
+# from datetime import date
+# from typing import Any
+
+# from pydantic import BaseModel, Field, EmailStr
+
+
+# class CustomerBookingCreateRequest(BaseModel):
+#     customer_name: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=150,
+#     )
+
+#     email: EmailStr
+
+#     phone_number: str = Field(
+#         ...,
+#         min_length=10,
+#         max_length=15,
+#     )
+
+#     full_address: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=1000,
+#     )
+
+#     # Example:
+#     # [
+#     #   {
+#     #     "id": "service-uuid",
+#     #     "quantity": 1
+#     #   }
+#     # ]
+#     services: list[dict[str, Any]] = Field(
+#         ...,
+#         min_length=1,
+#     )
+
+#     # Example:
+#     # [
+#     #   {
+#     #     "id": "addon-uuid",
+#     #     "quantity": 2
+#     #   }
+#     # ]
+#     add_ons: list[dict[str, Any]] = Field(
+#         default_factory=list,
+#     )
+
+#     booking_date: date
+
+#     booking_time: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=50,
+#     )
+
+#     latitude: float | None = None
+#     longitude: float | None = None
+
+#     location_link: str | None = Field(
+#         default=None,
+#         max_length=2000,
+#     )
+
+
+# class CustomerBookingResponse(BaseModel):
+#     success: bool
+#     booking_id: str
+#     message: str
+#     payment_status: str
+#     payment_verified: bool
+#     total_amount: float
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from datetime import date
+from typing import Any
+
+from pydantic import BaseModel, EmailStr, Field
+
+
+class CustomerBookingCreateRequest(BaseModel):
+    customer_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=150,
+    )
+
+    email: EmailStr
+
+    phone_number: str = Field(
+        ...,
+        min_length=10,
+        max_length=15,
+    )
+
+    full_address: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+    )
+
+    services: list[dict[str, Any]] = Field(
+        ...,
+        min_length=1,
+    )
+
+    add_ons: list[dict[str, Any]] = Field(
+        default_factory=list,
+    )
+
+    booking_date: date
+
+    booking_time: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+    )
+
+    latitude: float | None = None
+
+    longitude: float | None = None
+
+    location_link: str | None = Field(
+        default=None,
+        max_length=2000,
+    )
+
+
+class CustomerBookingResponse(BaseModel):
+    success: bool
+    booking_id: str
+    message: str
+    payment_status: str
+    payment_verified: bool
+    total_amount: float
+</file>
+
+<file path="app/schemas/customer_service.py">
+from typing import Any
+
+from pydantic import BaseModel, field_validator
+
+
+# =========================================================
+# MAIN CATEGORY RESPONSE
+# =========================================================
+
+class CustomerMainCategoryResponse(BaseModel):
+    id: str
+    name: str
+    icon_url: str | None = None
+    sort_order: int | None = None
+
+
+# =========================================================
+# SERVICE RESPONSE
+# =========================================================
+
+class CustomerServiceResponse(BaseModel):
+    id: str
+    slug: str | None = None
+    title: str
+    service_type: str | None = None
+    main_category_id: str | None = None
+
+    category_order: int | None = None
+    duration: str | None = None
+    price: str | None = None
+
+    image: str | None = None
+    gallery_images: list[str] | None = None
+    image2: Any | None = None
+
+    description: str | None = None
+
+    sort_order: int | None = None
+
+    original_price: str | None = None
+    discount_percent: float | None = None
+    discount_label: str | None = None
+
+    # Supabase may return:
+    # 0
+    # 0.0
+    # 4
+    # 4.0
+    # "4"
+    # "4.0"
+    # ""
+    # None
+    tax_percent: float | None = None
+
+    work_includes: str | None = None
+    work_not_included: str | None = None
+
+    category_icon_url: str | None = None
+
+    how_it_works: Any | None = None
+
+    @field_validator("tax_percent", mode="before")
+    @classmethod
+    def parse_tax_percent(cls, value):
+        # Empty/null value from Supabase
+        if value is None or value == "":
+            return None
+
+        # Already a number
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        # String number such as "4" or "4.0"
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value == "":
+                return None
+
+            try:
+                return float(value)
+            except ValueError:
+                return None
+
+        # Anything unexpected
+        return None
+
+
+# =========================================================
+# ADD-ON RESPONSE
+# =========================================================
+
+class CustomerAddOnResponse(BaseModel):
+    id: str
+    title: str
+    duration: int | None = None
+    price: str | None = None
+
+    image: str | None = None
+    service_type: str | None = None
+    description: str | None = None
+
+    sort_order: int | None = None
+
+    original_price: str | None = None
+    discount_percent: float | None = None
+    discount_label: str | None = None
+
+    work_includes: str | None = None
+    work_not_included: str | None = None
+
+    # Same handling as services
+    tax_percent: float | None = None
+
+    max_quantity: int | None = None
+
+    is_active: bool | None = None
+
+    @field_validator("tax_percent", mode="before")
+    @classmethod
+    def parse_tax_percent(cls, value):
+        # Empty/null value from Supabase
+        if value is None or value == "":
+            return None
+
+        # Already a number
+        if isinstance(value, (int, float)):
+            return float(value)
+
+        # String number such as "4" or "4.0"
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value == "":
+                return None
+
+            try:
+                return float(value)
+            except ValueError:
+                return None
+
+        # Anything unexpected
+        return None
 </file>
 
 <file path="app/services/customer_auth_service.py">
@@ -22074,6 +23755,700 @@ class CustomerAuthService:
             "success": True,
             "message": "Customer logged out successfully.",
         }
+</file>
+
+<file path="app/services/customer_booking_service.py">
+# from fastapi import HTTPException, status
+
+# from app.repositories.customer_booking_repository import (
+#     CustomerBookingRepository,
+# )
+
+
+# class CustomerBookingService:
+
+#     @staticmethod
+#     def create_booking(
+#         user_id: str,
+#         customer_name: str,
+#         email: str,
+#         phone_number: str,
+#         full_address: str,
+#         services,
+#         booking_date: str,
+#         booking_time: str,
+#         total_amount: float,
+#     ):
+
+#         customer_name = customer_name.strip()
+#         email = email.strip()
+#         phone_number = phone_number.strip()
+#         full_address = full_address.strip()
+
+#         if not customer_name:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Customer name is required.",
+#             )
+
+#         if not email:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Email is required.",
+#             )
+
+#         if not phone_number:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Phone number is required.",
+#             )
+
+#         if not full_address:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Address is required.",
+#             )
+
+#         if total_amount <= 0:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Booking amount must be greater than zero.",
+#             )
+
+#         booking = (
+#             CustomerBookingRepository
+#             .create_booking(
+#                 customer_name=customer_name,
+#                 email=email,
+#                 phone_number=phone_number,
+#                 full_address=full_address,
+#                 services=services,
+#                 booking_date=booking_date,
+#                 booking_time=booking_time,
+#                 total_amount=total_amount,
+#                 user_id=user_id,
+#             )
+#         )
+
+#         if not booking:
+#             raise HTTPException(
+#                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#                 detail="Failed to create booking.",
+#             )
+
+#         return {
+#             "success": True,
+#             "booking_id": str(booking["id"]),
+#             "message": "Booking created successfully.",
+#             "payment_status": booking.get(
+#                 "payment_status",
+#                 "pending",
+#             ),
+#             "payment_verified": bool(
+#                 booking.get(
+#                     "payment_verified",
+#                     False,
+#                 )
+#             ),
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from datetime import date
+
+from fastapi import HTTPException, status
+
+from app.repositories.customer_booking_repository import (
+    CustomerBookingRepository,
+)
+
+
+class CustomerBookingService:
+
+    # =========================================================
+    # PRICE HELPER
+    # =========================================================
+
+    @staticmethod
+    def _parse_price(value) -> float:
+
+        if value is None:
+            return 0.0
+
+        try:
+            return float(
+                str(value)
+                .replace("₹", "")
+                .replace(",", "")
+                .strip()
+            )
+
+        except (ValueError, TypeError):
+            return 0.0
+
+    # =========================================================
+    # QUANTITY HELPER
+    # =========================================================
+
+    @staticmethod
+    def _get_quantity(item: dict) -> int:
+
+        quantity = item.get(
+            "quantity",
+            1,
+        )
+
+        try:
+            quantity = int(quantity)
+
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid item quantity.",
+            )
+
+        if quantity <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Quantity must be greater than zero.",
+            )
+
+        return quantity
+
+    # =========================================================
+    # CREATE BOOKING
+    # =========================================================
+
+    @staticmethod
+    def create_booking(
+        user_id: str,
+        customer_name: str,
+        email: str,
+        phone_number: str,
+        full_address: str,
+        services,
+        booking_date,
+        booking_time: str,
+        add_ons=None,
+        latitude=None,
+        longitude=None,
+        location_link=None,
+    ):
+
+        # =====================================================
+        # BASIC VALIDATION
+        # =====================================================
+
+        customer_name = customer_name.strip()
+        email = email.strip()
+        phone_number = phone_number.strip()
+        full_address = full_address.strip()
+        booking_time = booking_time.strip()
+
+        if not customer_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Customer name is required.",
+            )
+
+        if not email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email is required.",
+            )
+
+        if not phone_number:
+            raise HTTPException(
+                status_code=400,
+                detail="Phone number is required.",
+            )
+
+        if not full_address:
+            raise HTTPException(
+                status_code=400,
+                detail="Address is required.",
+            )
+
+        if not booking_time:
+            raise HTTPException(
+                status_code=400,
+                detail="Booking time is required.",
+            )
+
+        # =====================================================
+        # DATE VALIDATION
+        # =====================================================
+
+        if isinstance(booking_date, str):
+
+            try:
+                booking_date = date.fromisoformat(
+                    booking_date
+                )
+
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Invalid booking date. "
+                        "Use YYYY-MM-DD."
+                    ),
+                )
+
+        if not isinstance(booking_date, date):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid booking date.",
+            )
+
+        if booking_date < date.today():
+            raise HTTPException(
+                status_code=400,
+                detail="Booking date cannot be in the past.",
+            )
+
+        # =====================================================
+        # SERVICES VALIDATION
+        # =====================================================
+
+        if not services:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one service is required.",
+            )
+
+        service_ids = []
+
+        for item in services:
+
+            if not isinstance(item, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Each service must be an object."
+                    ),
+                )
+
+            service_id = item.get("id")
+
+            if not service_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Each service must contain an id."
+                    ),
+                )
+
+            service_ids.append(
+                str(service_id)
+            )
+
+        # Prevent duplicate services.
+        if len(service_ids) != len(set(service_ids)):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Duplicate services are not allowed."
+                ),
+            )
+
+        # =====================================================
+        # GET SERVICES FROM DATABASE
+        # =====================================================
+
+        db_services = (
+            CustomerBookingRepository
+            .get_services_by_ids(
+                service_ids
+            )
+        )
+
+        if len(db_services) != len(service_ids):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "One or more selected services "
+                    "are invalid."
+                ),
+            )
+
+        service_map = {
+            str(service["id"]): service
+            for service in db_services
+        }
+
+        # =====================================================
+        # ADD-ONS VALIDATION
+        # =====================================================
+
+        add_ons = add_ons or []
+
+        addon_ids = []
+
+        for item in add_ons:
+
+            if not isinstance(item, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Each add-on must be an object."
+                    ),
+                )
+
+            addon_id = item.get("id")
+
+            if not addon_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Each add-on must contain an id."
+                    ),
+                )
+
+            addon_ids.append(
+                str(addon_id)
+            )
+
+        # Prevent duplicate add-ons.
+        if len(addon_ids) != len(set(addon_ids)):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Duplicate add-ons are not allowed."
+                ),
+            )
+
+        db_addons = []
+
+        if addon_ids:
+
+            db_addons = (
+                CustomerBookingRepository
+                .get_addons_by_ids(
+                    addon_ids
+                )
+            )
+
+            if len(db_addons) != len(addon_ids):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "One or more selected add-ons "
+                        "are invalid."
+                    ),
+                )
+
+        addon_map = {
+            str(addon["id"]): addon
+            for addon in db_addons
+        }
+
+        # =====================================================
+        # CALCULATE TOTAL
+        # =====================================================
+
+        calculated_total = 0.0
+
+        normalized_services = []
+
+        # =====================================================
+        # SERVICES
+        # =====================================================
+
+        for item in services:
+
+            service_id = str(
+                item["id"]
+            )
+
+            quantity = (
+                CustomerBookingService
+                ._get_quantity(item)
+            )
+
+            service = service_map[
+                service_id
+            ]
+
+            price = (
+                CustomerBookingService
+                ._parse_price(
+                    service.get("price")
+                )
+            )
+
+            if price <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid service price for "
+                        f"'{service.get('title')}'."
+                    ),
+                )
+
+            line_total = (
+                price * quantity
+            )
+
+            calculated_total += line_total
+
+            normalized_services.append(
+                {
+                    "id": service_id,
+                    "title": service.get(
+                        "title"
+                    ),
+                    "quantity": quantity,
+                    "price": price,
+                }
+            )
+
+        # =====================================================
+        # ADD-ONS
+        # =====================================================
+
+        normalized_addons = []
+
+        for item in add_ons:
+
+            addon_id = str(
+                item["id"]
+            )
+
+            quantity = (
+                CustomerBookingService
+                ._get_quantity(item)
+            )
+
+            addon = addon_map[
+                addon_id
+            ]
+
+            price = (
+                CustomerBookingService
+                ._parse_price(
+                    addon.get("price")
+                )
+            )
+
+            if price <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid add-on price for "
+                        f"'{addon.get('title')}'."
+                    ),
+                )
+
+            line_total = (
+                price * quantity
+            )
+
+            calculated_total += line_total
+
+            normalized_addons.append(
+                {
+                    "id": addon_id,
+                    "title": addon.get(
+                        "title"
+                    ),
+                    "quantity": quantity,
+                    "price": price,
+                }
+            )
+
+        # =====================================================
+        # FINAL TOTAL
+        # =====================================================
+
+        calculated_total = round(
+            calculated_total,
+            2,
+        )
+
+        if calculated_total <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Booking amount must be "
+                    "greater than zero."
+                ),
+            )
+
+        # =====================================================
+        # CREATE BOOKING
+        # =====================================================
+
+        booking = (
+            CustomerBookingRepository
+            .create_booking(
+                customer_name=customer_name,
+                email=email,
+                phone_number=phone_number,
+                full_address=full_address,
+
+                services=normalized_services,
+
+                add_ons=normalized_addons,
+
+                booking_date=booking_date.isoformat(),
+
+                booking_time=booking_time,
+
+                total_amount=calculated_total,
+
+                user_id=user_id,
+
+                latitude=latitude,
+
+                longitude=longitude,
+
+                location_link=location_link,
+            )
+        )
+
+        # =====================================================
+        # INSERT FAILURE
+        # =====================================================
+
+        if not booking:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create booking.",
+            )
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        return {
+            "success": True,
+
+            "booking_id": str(
+                booking["id"]
+            ),
+
+            "message": (
+                "Booking created successfully."
+            ),
+
+            "payment_status": booking.get(
+                "payment_status",
+                "pending",
+            ),
+
+            "payment_verified": bool(
+                booking.get(
+                    "payment_verified",
+                    False,
+                )
+            ),
+
+            "total_amount": float(
+                booking.get(
+                    "total_amount",
+                    calculated_total,
+                )
+            ),
+        }
+</file>
+
+<file path="requirements.txt">
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.1
+boto3==1.42.59
+botocore==1.42.59
+cachetools==6.2.6
+certifi==2026.2.25
+cffi==2.0.0
+charset-normalizer==3.4.4
+click==8.1.8
+colorama==0.4.6
+colorlog==6.10.1
+cryptography==46.0.5
+decorator==5.2.1
+deprecation==2.1.0
+fastapi==0.134.0
+fsspec==2026.2.0
+gTTS==2.5.4
+h11==0.16.0
+h2==4.3.0
+hpack==4.1.0
+httpcore==1.0.9
+httptools==0.7.1
+httpx==0.28.1
+hyperframe==6.1.0
+idna==3.11
+ImageIO==2.37.3
+imageio-ffmpeg==0.6.0
+jmespath==1.1.0
+markdown-it-py==4.0.0
+mdurl==0.1.2
+mmh3==5.2.0
+moviepy==2.2.1
+multidict==6.7.1
+numpy==2.4.4
+packaging==26.0
+pandas==3.0.2
+pillow==11.3.0
+postgrest==2.28.0
+proglog==0.1.12
+propcache==0.4.1
+pycparser==3.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+Pygments==2.19.2
+pyiceberg==0.11.1
+PyJWT==2.11.0
+pyparsing==3.3.2
+pyroaring==1.0.3
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+python-multipart==0.0.22
+PyYAML==6.0.3
+razorpay==2.0.1
+realtime==2.28.0
+reportlab==4.4.10
+requests==2.32.5
+rich==14.3.3
+s3transfer==0.16.0
+setuptools==82.0.1
+six==1.17.0
+starlette==0.52.1
+storage3==2.28.0
+StrEnum==0.4.15
+strictyaml==1.7.3
+supabase==2.28.0
+supabase-auth==2.28.0
+supabase-functions==2.28.0
+tenacity==9.1.4
+tqdm==4.67.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.3
+urllib3==2.6.3
+uvicorn==0.41.0
+watchfiles==1.1.1
+websocket-client==1.9.0
+websockets==15.0.1
+wheel==0.47.0
+yarl==1.23.0
+zstandard==0.25.0
 </file>
 
 <file path="app/repositories/customer_repository.py">
@@ -22985,6 +25360,14 @@ from app.api.v1.endpoints.customer_profile import (
 from app.api.v1.endpoints.customer_services import (
     router as customer_services_router,
 )
+
+from app.api.v1.endpoints.customer_booking import (
+    router as customer_booking_router,
+)
+
+from app.api.v1.endpoints.customer_payment import (
+    router as customer_payment_router,
+)
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
@@ -23104,6 +25487,18 @@ api_router.include_router(
     customer_services_router,
     prefix="/customer",
     tags=["Customer Services"],
+)
+
+api_router.include_router(
+    customer_booking_router,
+    prefix="/customer",
+    tags=["Customer Booking"],
+)
+
+api_router.include_router(
+    customer_payment_router,
+    prefix="/customer",
+    tags=["Customer Payment"],
 )
 </file>
 
