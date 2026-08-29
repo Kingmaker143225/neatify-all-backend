@@ -50,6 +50,7 @@ app/
         booking.py
         customer_auth.py
         customer_booking.py
+        customer_cart.py
         customer_payment.py
         customer_profile.py
         customer_services.py
@@ -79,6 +80,7 @@ app/
     availability_repository.py
     booking_reminder_repository.py
     customer_booking_repository.py
+    customer_cart_repository.py
     customer_payment_repository.py
     customer_repository.py
     customer_service_repository.py
@@ -100,6 +102,7 @@ app/
     availability.py
     customer_auth.py
     customer_booking.py
+    customer_cart.py
     customer_payment.py
     customer_profile.py
     customer_service.py
@@ -119,6 +122,7 @@ app/
     booking_reminder_service.py
     customer_auth_service.py
     customer_booking_service.py
+    customer_cart_service.py
     customer_payment_service.py
     customer_profile_service.py
     customer_service_service.py
@@ -634,6 +638,128 @@ async def run_booking_reminders():
 
 <file path="app/api/v1/endpoints/booking.py">
 
+</file>
+
+<file path="app/api/v1/endpoints/customer_cart.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.schemas.customer_cart import (
+    CustomerCartItemAddRequest,
+    CustomerCartItemResponse,
+    CustomerCartResponse,
+)
+
+from app.services.customer_cart_service import (
+    CustomerCartService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# GET CUSTOMER CART
+# =========================================================
+
+@router.get(
+    "",
+    response_model=CustomerCartResponse,
+)
+async def get_customer_cart(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    user_id = str(
+        current_customer["user"].id
+    )
+
+    return (
+        CustomerCartService
+        .get_cart(
+            user_id=user_id,
+        )
+    )
+
+
+# =========================================================
+# ADD SERVICE TO CART
+# =========================================================
+
+@router.post(
+    "",
+)
+async def add_customer_cart_item(
+    request: CustomerCartItemAddRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    user_id = str(
+        current_customer["user"].id
+    )
+
+    return (
+        CustomerCartService
+        .add_to_cart(
+            user_id=user_id,
+            service_id=request.service_id,
+        )
+    )
+
+
+# =========================================================
+# REMOVE SERVICE FROM CART
+# =========================================================
+
+@router.delete(
+    "/{service_id}",
+)
+async def remove_customer_cart_item(
+    service_id: str,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    user_id = str(
+        current_customer["user"].id
+    )
+
+    return (
+        CustomerCartService
+        .remove_from_cart(
+            user_id=user_id,
+            service_id=service_id,
+        )
+    )
+
+
+# =========================================================
+# CLEAR CUSTOMER CART
+# =========================================================
+
+@router.delete(
+    "",
+)
+async def clear_customer_cart(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    user_id = str(
+        current_customer["user"].id
+    )
+
+    return (
+        CustomerCartService
+        .clear_cart(
+            user_id=user_id,
+        )
+    )
 </file>
 
 <file path="app/api/v1/endpoints/customer_payment.py">
@@ -3979,6 +4105,173 @@ class BookingReminderRepository:
         )
 
         return response.data
+</file>
+
+<file path="app/repositories/customer_cart_repository.py">
+from app.supabase.client import supabase
+
+
+class CustomerCartRepository:
+    # =========================================================
+    # GET CART
+    # =========================================================
+
+    @staticmethod
+    def get_cart(user_id: str):
+        response = (
+            supabase
+            .table("cart_items")
+            .select(
+                """
+                id,
+                user_id,
+                service_id,
+                title,
+                duration,
+                price,
+                image,
+                created_at
+                """
+            )
+            .eq("user_id", user_id)
+            .order(
+                "created_at",
+                desc=True,
+            )
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # GET SINGLE CART ITEM
+    # =========================================================
+
+    @staticmethod
+    def get_cart_item(
+        user_id: str,
+        service_id: str,
+    ):
+        response = (
+            supabase
+            .table("cart_items")
+            .select(
+                """
+                id,
+                user_id,
+                service_id,
+                title,
+                duration,
+                price,
+                image,
+                created_at
+                """
+            )
+            .eq("user_id", user_id)
+            .eq("service_id", service_id)
+            .limit(1)
+            .execute()
+        )
+
+        data = response.data or []
+
+        return data[0] if data else None
+
+    # =========================================================
+    # GET SERVICE
+    # =========================================================
+
+    @staticmethod
+    def get_service(service_id: str):
+        response = (
+            supabase
+            .table("services")
+            .select(
+                """
+                id,
+                title,
+                price,
+                duration,
+                image
+                """
+            )
+            .eq("id", service_id)
+            .limit(1)
+            .execute()
+        )
+
+        data = response.data or []
+
+        return data[0] if data else None
+
+    # =========================================================
+    # ADD CART ITEM
+    # =========================================================
+
+    @staticmethod
+    def add_cart_item(
+        user_id: str,
+        service_id: str,
+        title: str,
+        duration: str | None,
+        price: str,
+        image: str | None,
+    ):
+        response = (
+            supabase
+            .table("cart_items")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "service_id": service_id,
+                    "title": title,
+                    "duration": duration,
+                    "price": price,
+                    "image": image,
+                }
+            )
+            .execute()
+        )
+
+        data = response.data or []
+
+        return data[0] if data else None
+
+    # =========================================================
+    # REMOVE CART ITEM
+    # =========================================================
+
+    @staticmethod
+    def remove_cart_item(
+        user_id: str,
+        service_id: str,
+    ):
+        response = (
+            supabase
+            .table("cart_items")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("service_id", service_id)
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # CLEAR CART
+    # =========================================================
+
+    @staticmethod
+    def clear_cart(user_id: str):
+        response = (
+            supabase
+            .table("cart_items")
+            .delete()
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        return response.data or []
 </file>
 
 <file path="app/repositories/customer_payment_repository.py">
@@ -8505,6 +8798,33 @@ class AvailabilitySaveRequest(BaseModel):
     calendar_data: Dict[str, str]
 </file>
 
+<file path="app/schemas/customer_cart.py">
+from pydantic import BaseModel, Field
+
+
+class CustomerCartItemAddRequest(BaseModel):
+    service_id: str = Field(
+        ...,
+        min_length=1,
+    )
+
+
+class CustomerCartItemResponse(BaseModel):
+    id: str
+    service_id: str
+    title: str
+    duration: str | None = None
+    price: str
+    image: str | None = None
+    created_at: str | None = None
+
+
+class CustomerCartResponse(BaseModel):
+    success: bool
+    items: list[CustomerCartItemResponse]
+    message: str
+</file>
+
 <file path="app/schemas/customer_payment.py">
 from pydantic import BaseModel, Field
 
@@ -9591,6 +9911,196 @@ class BookingReminderService:
             "sent": sent,
             "skipped": skipped,
             "errors": errors,
+        }
+</file>
+
+<file path="app/services/customer_cart_service.py">
+from fastapi import HTTPException, status
+
+from app.repositories.customer_cart_repository import (
+    CustomerCartRepository,
+)
+
+
+class CustomerCartService:
+
+    # =========================================================
+    # GET CART
+    # =========================================================
+
+    @staticmethod
+    def get_cart(
+        user_id: str,
+    ):
+        items = CustomerCartRepository.get_cart(
+            user_id=user_id,
+        )
+
+        return {
+            "success": True,
+            "items": items,
+            "message": "Cart fetched successfully.",
+        }
+
+    # =========================================================
+    # ADD ITEM
+    # =========================================================
+
+    @staticmethod
+    def add_to_cart(
+        user_id: str,
+        service_id: str,
+    ):
+        service_id = service_id.strip()
+
+        if not service_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Service ID is required.",
+            )
+
+        # -----------------------------------------------------
+        # CHECK SERVICE
+        # -----------------------------------------------------
+
+        service = CustomerCartRepository.get_service(
+            service_id=service_id,
+        )
+
+        if not service:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Service not found.",
+            )
+
+        # -----------------------------------------------------
+        # CHECK DUPLICATE
+        # -----------------------------------------------------
+
+        existing_item = (
+            CustomerCartRepository.get_cart_item(
+                user_id=user_id,
+                service_id=service_id,
+            )
+        )
+
+        if existing_item:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Already in Cart",
+            )
+
+        # -----------------------------------------------------
+        # GET SERVICE DATA
+        # -----------------------------------------------------
+
+        title = service.get("title")
+
+        if not title:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid service.",
+            )
+
+        price = service.get("price")
+
+        if price is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Service price is unavailable.",
+            )
+
+        duration = service.get("duration")
+        image = service.get("image")
+
+        # -----------------------------------------------------
+        # INSERT
+        # -----------------------------------------------------
+
+        item = CustomerCartRepository.add_cart_item(
+            user_id=user_id,
+            service_id=service_id,
+            title=str(title),
+            duration=(
+                str(duration)
+                if duration is not None
+                else None
+            ),
+            price=str(price),
+            image=(
+                str(image)
+                if image is not None
+                else None
+            ),
+        )
+
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to add service to cart.",
+            )
+
+        return {
+            "success": True,
+            "item": item,
+            "message": "Service added to cart.",
+        }
+
+    # =========================================================
+    # REMOVE ITEM
+    # =========================================================
+
+    @staticmethod
+    def remove_from_cart(
+        user_id: str,
+        service_id: str,
+    ):
+        service_id = service_id.strip()
+
+        if not service_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Service ID is required.",
+            )
+
+        existing_item = (
+            CustomerCartRepository.get_cart_item(
+                user_id=user_id,
+                service_id=service_id,
+            )
+        )
+
+        if not existing_item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cart item not found.",
+            )
+
+        CustomerCartRepository.remove_cart_item(
+            user_id=user_id,
+            service_id=service_id,
+        )
+
+        return {
+            "success": True,
+            "message": "Service removed from cart.",
+        }
+
+    # =========================================================
+    # CLEAR CART
+    # =========================================================
+
+    @staticmethod
+    def clear_cart(
+        user_id: str,
+    ):
+        CustomerCartRepository.clear_cart(
+            user_id=user_id,
+        )
+
+        return {
+            "success": True,
+            "message": "Cart cleared successfully.",
         }
 </file>
 
@@ -21539,6 +22049,32 @@ async def create_customer_booking(
             location_link=request.location_link,
         )
     )
+# =========================================================
+# GET CUSTOMER BOOKINGS
+# =========================================================
+
+@router.get(
+    "/bookings",
+)
+async def get_customer_bookings(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    user_id = current_customer["user"].id
+
+    bookings = (
+        CustomerBookingService
+        .get_customer_bookings(
+            user_id=str(user_id)
+        )
+    )
+
+    return {
+        "success": True,
+        "items": bookings,
+        "message": "Bookings fetched successfully.",
+    }
 </file>
 
 <file path="app/config/settings.py">
@@ -21977,6 +22513,24 @@ class CustomerBookingRepository:
             if response.data
             else None
         )
+        # =========================================================
+    # GET CUSTOMER BOOKINGS
+    # =========================================================
+
+    @staticmethod
+    def get_customer_bookings(
+        user_id: str,
+    ):
+        response = (
+            supabase
+            .table("bookings")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return response.data or []
 
     # =========================================================
     # MARK PAYMENT SUCCESS
@@ -23876,6 +24430,10 @@ from app.repositories.customer_booking_repository import (
     CustomerBookingRepository,
 )
 
+from app.repositories.customer_booking_repository import (
+    CustomerBookingRepository,
+)
+
 
 class CustomerBookingService:
 
@@ -24365,6 +24923,17 @@ class CustomerBookingService:
                 )
             ),
         }
+        # =========================================================
+    # GET CUSTOMER BOOKINGS
+    # =========================================================
+
+    @staticmethod
+    def get_customer_bookings(
+        user_id: str,
+    ):
+        return CustomerBookingRepository.get_customer_bookings(
+            user_id=user_id
+        )
 </file>
 
 <file path="requirements.txt">
@@ -25368,6 +25937,10 @@ from app.api.v1.endpoints.customer_booking import (
 from app.api.v1.endpoints.customer_payment import (
     router as customer_payment_router,
 )
+
+from app.api.v1.endpoints.customer_cart import (
+    router as customer_cart_router,
+)
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
@@ -25499,6 +26072,12 @@ api_router.include_router(
     customer_payment_router,
     prefix="/customer",
     tags=["Customer Payment"],
+)
+
+api_router.include_router(
+    customer_cart_router,
+    prefix="/customer/cart",
+    tags=["Customer Cart"],
 )
 </file>
 
