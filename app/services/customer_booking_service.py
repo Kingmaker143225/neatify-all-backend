@@ -2362,3 +2362,27 @@ class CustomerBookingService:
                 user_id=user_id
             )
         ) 
+
+    # =========================================================
+# GET SINGLE CUSTOMER BOOKING
+# =========================================================
+
+@staticmethod
+def get_booking(
+    booking_id: str,
+    user_id: str,
+):
+    booking = (
+        CustomerBookingRepository
+        .get_booking(
+            booking_id=booking_id,
+            user_id=user_id,
+        )
+    )
+
+    if not booking:
+        raise ValueError(
+            "Booking not found."
+        )
+
+    return booking
