@@ -724,10 +724,16 @@ from app.api.v1.endpoints.customer_cart import (
 )
 
 from app.api.v1.endpoints import customer_home
+
+from app.api.v1.endpoints import customer_coupon
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
+
+from app.api.v1.endpoints import customer_policy
 api_router = APIRouter()
+
+from app.api.v1.endpoints import customer_wallet
 
 
 # =========================================================
@@ -867,4 +873,23 @@ api_router.include_router(
     customer_home.router,
     prefix="/customer",
     tags=["Customer Home"],
+)
+
+api_router.include_router(
+    customer_coupon.router,
+    prefix="/customer",
+    tags=["Customer Coupon"],
+)
+
+api_router.include_router(
+    customer_policy.router,
+    prefix="/customer",
+    tags=["Customer Policy"],
+)
+
+
+api_router.include_router(
+    customer_wallet.router,
+    prefix="/customer",
+    tags=["Customer Wallet"],
 )

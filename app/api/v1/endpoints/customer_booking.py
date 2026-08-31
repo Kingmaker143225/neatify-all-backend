@@ -467,3 +467,42 @@ async def get_customer_booking(
     )
 
     return booking
+
+
+# =========================================================
+# CHECK CUSTOMER SERVICE AVAILABILITY
+# =========================================================
+
+@router.get(
+    "/service-availability",
+)
+async def check_customer_service_availability(
+    pincode: str,
+    service_categories: str,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    categories = [
+        category.strip()
+        for category in service_categories.split(",")
+        if category.strip()
+    ]
+
+    if not categories:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail="At least one service category is required.",
+        )
+
+    result = (
+        CustomerBookingService
+        .check_service_availability(
+            pincode=pincode,
+            service_categories=categories,
+        )
+    )
+
+    return result

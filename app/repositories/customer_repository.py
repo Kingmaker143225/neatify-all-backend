@@ -191,3 +191,67 @@ class CustomerRepository:
             .get_profile(user_id)
             is not None
         )
+
+    # =========================================================
+    # GET CUSTOMER COUPON
+    # =========================================================
+
+    @staticmethod
+    def get_customer_coupon(
+        phone: str,
+    ):
+        response = (
+            supabase
+            .table("coupons")
+            .select(
+                """
+                id,
+                coupon_code,
+                discount_percentage,
+                discount_amount,
+                phone_number,
+                is_used,
+                is_active,
+                service_id
+                """
+            )
+            .or_(
+                f"phone_number.eq.{phone},"
+                f"phone_number.eq.91{phone},"
+                f"phone_number.eq.+91{phone}"
+            )
+            .eq("is_active", True)
+            .eq("is_used", False)
+            .order(
+                "created_at",
+                desc=True,
+            )
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # GET APP POLICIES
+    # =========================================================
+
+    @staticmethod
+    def get_app_policies():
+        response = (
+            supabase
+            .table("app_policies")
+            .select(
+                """
+                user_policies,
+                terms_and_conditions
+                """
+            )
+            .eq("is_active", True)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
