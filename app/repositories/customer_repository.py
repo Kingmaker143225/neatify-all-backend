@@ -145,7 +145,8 @@ class CustomerRepository:
                 email,
                 phone,
                 address,
-                pincode
+                pincode,
+                referral_code
                 """
             )
             .eq("id", user_id)

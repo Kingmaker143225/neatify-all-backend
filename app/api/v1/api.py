@@ -735,6 +735,7 @@ api_router = APIRouter()
 
 from app.api.v1.endpoints import customer_wallet
 
+from app.api.v1.endpoints import customer_referral
 
 # =========================================================
 # SYSTEM
@@ -892,4 +893,10 @@ api_router.include_router(
     customer_wallet.router,
     prefix="/customer",
     tags=["Customer Wallet"],
+)
+
+api_router.include_router(
+    customer_referral.router,
+    prefix="/customer",
+    tags=["Customer Referral"],
 )

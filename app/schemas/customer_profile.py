@@ -8,6 +8,7 @@ class CustomerProfileResponse(BaseModel):
     phone: str | None = None
     address: str | None = None
     pincode: str | None = None
+    referral_code : str | None  = None
 
 
 class CustomerProfileUpdateRequest(BaseModel):

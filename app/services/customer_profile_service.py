@@ -35,6 +35,7 @@ class CustomerProfileService:
                 "phone": None,
                 "address": None,
                 "pincode": None,
+                "referral_code": None,
             }
 
         # -----------------------------------------------------
@@ -52,6 +53,7 @@ class CustomerProfileService:
             "phone": profile.get("phone"),
             "address": profile.get("address"),
             "pincode": profile.get("pincode"),
+            "referral_code": profile.get("referral_code"),
         }
 
     # =========================================================
@@ -65,6 +67,7 @@ class CustomerProfileService:
         phone: str,
         address: str,
         pincode: str,
+        
     ):
         user = customer["user"]
         user_id = str(user.id)
