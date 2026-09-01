@@ -737,6 +737,10 @@ from app.api.v1.endpoints import customer_wallet
 
 from app.api.v1.endpoints import customer_referral
 
+from fastapi import APIRouter
+from app.api.v1.endpoints.customer_auth import router as customer_auth_router
+
+
 # =========================================================
 # SYSTEM
 # =========================================================
@@ -899,4 +903,10 @@ api_router.include_router(
     customer_referral.router,
     prefix="/customer",
     tags=["Customer Referral"],
+)
+
+api_router.include_router(
+    customer_auth_router,
+    prefix="/customer/auth",
+    tags=["Customer Authentication"],
 )

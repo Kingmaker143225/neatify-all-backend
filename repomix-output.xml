@@ -51,10 +51,14 @@ app/
         customer_auth.py
         customer_booking.py
         customer_cart.py
+        customer_coupon.py
         customer_home.py
         customer_payment.py
+        customer_policy.py
         customer_profile.py
+        customer_referral.py
         customer_services.py
+        customer_wallet.py
         notification.py
         partner_duty.py
         partner_payment.py
@@ -82,9 +86,12 @@ app/
     booking_reminder_repository.py
     customer_booking_repository.py
     customer_cart_repository.py
+    customer_coupon_repository.py
     customer_payment_repository.py
+    customer_policy_repository.py
     customer_repository.py
     customer_service_repository.py
+    customer_wallet_repository.py
     partner_booking_repository.py
     partner_dashboard_repository.py
     partner_duty_repository.py
@@ -124,10 +131,13 @@ app/
     customer_auth_service.py
     customer_booking_service.py
     customer_cart_service.py
+    customer_coupon_service.py
     customer_home_service.py
     customer_payment_service.py
+    customer_policy_service.py
     customer_profile_service.py
     customer_service_service.py
+    customer_wallet_service.py
     notification_service.py
     partner_booking_action_service.py
     partner_booking_service.py
@@ -764,6 +774,111 @@ async def clear_customer_cart(
     )
 </file>
 
+<file path="app/api/v1/endpoints/customer_coupon.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.services.customer_coupon_service import (
+    CustomerCouponService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# GET CUSTOMER COUPONS
+# =========================================================
+
+@router.get(
+    "/coupons",
+)
+async def get_customer_coupons(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user = current_customer["user"]
+
+    user_id = str(user.id)
+
+    phone_number = None
+
+    result = (
+        CustomerCouponService
+        .get_available_coupons(
+            user_id=user_id,
+            phone_number=phone_number,
+        )
+    )
+
+    return result
+
+
+# =========================================================
+# VALIDATE COUPON
+# =========================================================
+
+@router.get(
+    "/coupons/validate",
+)
+async def validate_customer_coupon(
+    coupon_code: str,
+    subtotal: float,
+    service_id: str | None = None,
+    phone_number: str | None = None,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user = current_customer["user"]
+
+    user_id = str(user.id)
+
+    return (
+        CustomerCouponService
+        .validate_coupon(
+            coupon_code=coupon_code,
+            user_id=user_id,
+            phone_number=phone_number,
+            service_id=service_id,
+            subtotal=subtotal,
+        )
+    )
+
+
+# =========================================================
+# MARK COUPON USED
+# =========================================================
+
+@router.post(
+    "/coupons/{coupon_id}/use",
+)
+async def use_customer_coupon(
+    coupon_id: str,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user = current_customer["user"]
+
+    user_id = str(user.id)
+
+    return (
+        CustomerCouponService
+        .mark_coupon_used(
+            coupon_id=coupon_id,
+            user_id=user_id,
+        )
+    )
+</file>
+
 <file path="app/api/v1/endpoints/customer_home.py">
 from fastapi import APIRouter, Depends
 
@@ -913,6 +1028,40 @@ async def verify_customer_payment(
     )
 </file>
 
+<file path="app/api/v1/endpoints/customer_policy.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.services.customer_policy_service import (
+    CustomerPolicyService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# GET CUSTOMER POLICIES
+# =========================================================
+
+@router.get(
+    "/policies",
+)
+async def get_customer_policies(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    return (
+        CustomerPolicyService
+        .get_policy()
+    )
+</file>
+
 <file path="app/api/v1/endpoints/customer_profile.py">
 from fastapi import APIRouter, Depends
 
@@ -928,6 +1077,14 @@ from app.schemas.customer_profile import (
 from app.services.customer_profile_service import (
     CustomerProfileService,
 )
+
+
+from app.schemas.customer_profile import (
+    CustomerProfileResponse,
+    CustomerProfileUpdateRequest,
+    CustomerCompleteProfileRequest,
+)
+
 
 
 router = APIRouter()
@@ -978,6 +1135,81 @@ async def update_customer_profile(
             pincode=request.pincode,
         )
     )
+
+
+
+# =========================================================
+# COMPLETE CUSTOMER PROFILE
+# =========================================================
+
+@router.post(
+    "/complete",
+    response_model=CustomerProfileResponse,
+)
+async def complete_customer_profile(
+    request: CustomerCompleteProfileRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return (
+        CustomerProfileService
+        .complete_profile(
+            customer=current_customer,
+            full_name=request.full_name,
+            email=request.email,
+            phone=request.phone,
+            password=request.password,
+            referral_code=request.referral_code,
+        )
+    )
+</file>
+
+<file path="app/api/v1/endpoints/customer_referral.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.supabase.client import supabase
+
+
+router = APIRouter()
+
+
+@router.get("/referral/validate")
+async def validate_referral_code(
+    code: str,
+    current_customer=Depends(get_current_customer),
+):
+    clean_code = code.strip().upper()
+
+    if not clean_code:
+        return {
+            "valid": False,
+            "referrer_id": None,
+        }
+
+    response = (
+        supabase
+        .table("profile")
+        .select("id")
+        .eq("referral_code", clean_code)
+        .maybe_single()
+        .execute()
+    )
+
+    if not response.data:
+        return {
+            "valid": False,
+            "referrer_id": None,
+        }
+
+    return {
+        "valid": True,
+        "referrer_id": response.data["id"],
+    }
 </file>
 
 <file path="app/api/v1/endpoints/customer_services.py">
@@ -1106,6 +1338,102 @@ async def get_customer_addons(
         CustomerServiceService
         .get_active_addons(
             service_type=service_type,
+        )
+    )
+</file>
+
+<file path="app/api/v1/endpoints/customer_wallet.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.services.customer_wallet_service import (
+    CustomerWalletService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# GET CUSTOMER WALLET
+# =========================================================
+
+@router.get(
+    "/wallet",
+)
+async def get_customer_wallet(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user = current_customer["user"]
+
+    user_id = str(user.id)
+
+    return (
+        CustomerWalletService
+        .get_wallet(
+            user_id=user_id,
+        )
+    )
+
+
+# =========================================================
+# GET WALLET TRANSACTIONS
+# =========================================================
+
+@router.get(
+    "/wallet/transactions",
+)
+async def get_customer_wallet_transactions(
+    limit: int = 50,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user = current_customer["user"]
+
+    user_id = str(user.id)
+
+    return (
+        CustomerWalletService
+        .get_transactions(
+            user_id=user_id,
+            limit=limit,
+        )
+    )
+
+
+# =========================================================
+# DEDUCT WALLET
+# =========================================================
+
+@router.post(
+    "/wallet/deduct",
+)
+async def deduct_customer_wallet(
+    amount: float,
+    description: str = "Booking payment",
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user = current_customer["user"]
+
+    user_id = str(user.id)
+
+    return (
+        CustomerWalletService
+        .deduct_wallet(
+            user_id=user_id,
+            amount=amount,
+            description=description,
         )
     )
 </file>
@@ -4342,6 +4670,137 @@ class CustomerCartRepository:
         return response.data or []
 </file>
 
+<file path="app/repositories/customer_coupon_repository.py">
+from app.supabase.client import supabase
+
+
+class CustomerCouponRepository:
+
+    # =========================================================
+    # GET AVAILABLE COUPONS
+    # =========================================================
+
+    @staticmethod
+    def get_available_coupons(
+        user_id: str | None = None,
+        phone_number: str | None = None,
+    ):
+        query = (
+            supabase
+            .table("coupons")
+            .select(
+                """
+                id,
+                coupon_code,
+                discount_percentage,
+                phone_number,
+                is_used,
+                created_at,
+                discount_amount,
+                is_active,
+                service_id,
+                user_id
+                """
+            )
+            .eq("is_active", True)
+            .eq("is_used", False)
+        )
+
+        response = query.execute()
+
+        coupons = response.data or []
+
+        # -----------------------------------------------------
+        # Filter coupons belonging to this customer
+        # -----------------------------------------------------
+
+        if user_id or phone_number:
+            filtered = []
+
+            for coupon in coupons:
+
+                coupon_user_id = coupon.get("user_id")
+                coupon_phone = coupon.get("phone_number")
+
+                # Global coupon
+                if not coupon_user_id and not coupon_phone:
+                    filtered.append(coupon)
+                    continue
+
+                # User-specific coupon
+                if user_id and coupon_user_id == user_id:
+                    filtered.append(coupon)
+                    continue
+
+                # Phone-specific coupon
+                if phone_number and coupon_phone == phone_number:
+                    filtered.append(coupon)
+                    continue
+
+            coupons = filtered
+
+        return coupons
+
+    # =========================================================
+    # GET COUPON BY CODE
+    # =========================================================
+
+    @staticmethod
+    def get_coupon_by_code(
+        coupon_code: str,
+    ):
+        response = (
+            supabase
+            .table("coupons")
+            .select(
+                """
+                id,
+                coupon_code,
+                discount_percentage,
+                phone_number,
+                is_used,
+                created_at,
+                discount_amount,
+                is_active,
+                service_id,
+                user_id
+                """
+            )
+            .eq(
+                "coupon_code",
+                coupon_code,
+            )
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # MARK COUPON AS USED
+    # =========================================================
+
+    @staticmethod
+    def mark_coupon_used(
+        coupon_id: str,
+        user_id: str,
+    ):
+        response = (
+            supabase
+            .table("coupons")
+            .update(
+                {
+                    "is_used": True,
+                    "user_id": user_id,
+                }
+            )
+            .eq("id", coupon_id)
+            .execute()
+        )
+
+        return response.data
+</file>
+
 <file path="app/repositories/customer_payment_repository.py">
 from app.supabase.client import supabase
 
@@ -4442,6 +4901,178 @@ class CustomerPaymentRepository:
         )
 
         return response.data[0] if response.data else None
+</file>
+
+<file path="app/repositories/customer_policy_repository.py">
+from app.supabase.client import supabase
+
+
+class CustomerPolicyRepository:
+
+    @staticmethod
+    def get_active_policy():
+        response = (
+            supabase
+            .table("app_policies")
+            .select(
+                """
+                id,
+                user_policies,
+                terms_and_conditions,
+                is_active,
+                created_at,
+                updated_at
+                """
+            )
+            .eq("is_active", True)
+            .order(
+                "updated_at",
+                desc=True,
+            )
+            .limit(1)
+            .execute()
+        )
+
+        if not response.data:
+            return None
+
+        return response.data[0]
+</file>
+
+<file path="app/repositories/customer_wallet_repository.py">
+from app.supabase.client import supabase
+
+
+class CustomerWalletRepository:
+
+    # =========================================================
+    # GET WALLET
+    # =========================================================
+
+    @staticmethod
+    def get_wallet(user_id: str):
+
+        response = (
+            supabase
+            .table("wallet")
+            .select(
+                """
+                user_id,
+                balance,
+                updated_at
+                """
+            )
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # GET WALLET TRANSACTIONS
+    # =========================================================
+
+    @staticmethod
+    def get_transactions(
+        user_id: str,
+        limit: int = 50,
+    ):
+
+        response = (
+            supabase
+            .table("wallet_transactions")
+            .select(
+                """
+                id,
+                user_id,
+                amount,
+                transaction_type,
+                description,
+                created_at
+                """
+            )
+            .eq("user_id", user_id)
+            .order(
+                "created_at",
+                desc=True,
+            )
+            .limit(limit)
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # DEDUCT WALLET
+    # =========================================================
+
+    @staticmethod
+    def deduct_wallet(
+        user_id: str,
+        amount: float,
+    ):
+
+        wallet = (
+            CustomerWalletRepository
+            .get_wallet(user_id)
+        )
+
+        if not wallet:
+            return None
+
+        current_balance = float(
+            wallet.get("balance") or 0
+        )
+
+        if current_balance < amount:
+            return None
+
+        new_balance = (
+            current_balance - amount
+        )
+
+        response = (
+            supabase
+            .table("wallet")
+            .update(
+                {
+                    "balance": new_balance,
+                }
+            )
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # CREATE TRANSACTION
+    # =========================================================
+
+    @staticmethod
+    def create_transaction(
+        user_id: str,
+        amount: float,
+        transaction_type: str,
+        description: str,
+    ):
+
+        response = (
+            supabase
+            .table("wallet_transactions")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "amount": amount,
+                    "transaction_type": transaction_type,
+                    "description": description,
+                }
+            )
+            .execute()
+        )
+
+        return response.data
 </file>
 
 <file path="app/repositories/partner_booking_repository.py">
@@ -8926,30 +9557,6 @@ class CustomerPaymentVerifyResponse(BaseModel):
     message: str
 </file>
 
-<file path="app/schemas/customer_profile.py">
-from pydantic import BaseModel, Field
-
-
-class CustomerProfileResponse(BaseModel):
-    id: str
-    full_name: str | None = None
-    email: str
-    phone: str | None = None
-    address: str | None = None
-    pincode: str | None = None
-
-
-class CustomerProfileUpdateRequest(BaseModel):
-    full_name: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-    )
-    phone: str
-    address: str = ""
-    pincode: str = ""
-</file>
-
 <file path="app/schemas/notification.py">
 from typing import Any
 
@@ -10172,6 +10779,207 @@ class CustomerCartService:
         }
 </file>
 
+<file path="app/services/customer_coupon_service.py">
+from fastapi import HTTPException, status
+
+from app.repositories.customer_coupon_repository import (
+    CustomerCouponRepository,
+)
+
+
+class CustomerCouponService:
+
+    # =========================================================
+    # GET AVAILABLE COUPONS
+    # =========================================================
+
+    @staticmethod
+    def get_available_coupons(
+        user_id: str,
+        phone_number: str | None = None,
+    ):
+
+        coupons = (
+            CustomerCouponRepository
+            .get_available_coupons(
+                user_id=user_id,
+                phone_number=phone_number,
+            )
+        )
+
+        return {
+            "success": True,
+            "items": coupons,
+            "message": (
+                "Coupons fetched successfully."
+            ),
+        }
+
+    # =========================================================
+    # VALIDATE COUPON
+    # =========================================================
+
+    @staticmethod
+    def validate_coupon(
+        coupon_code: str,
+        user_id: str,
+        phone_number: str | None = None,
+        service_id: str | None = None,
+        subtotal: float = 0,
+    ):
+
+        code = coupon_code.strip()
+
+        if not code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Coupon code is required.",
+            )
+
+        coupon = (
+            CustomerCouponRepository
+            .get_coupon_by_code(code)
+        )
+
+        if not coupon:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invalid coupon code.",
+            )
+
+        # -----------------------------------------------------
+        # ACTIVE CHECK
+        # -----------------------------------------------------
+
+        if not coupon.get("is_active"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This coupon is no longer active.",
+            )
+
+        # -----------------------------------------------------
+        # USED CHECK
+        # -----------------------------------------------------
+
+        if coupon.get("is_used"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This coupon has already been used.",
+            )
+
+        # -----------------------------------------------------
+        # USER CHECK
+        # -----------------------------------------------------
+
+        coupon_user_id = coupon.get("user_id")
+
+        if (
+            coupon_user_id
+            and coupon_user_id != user_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This coupon is not valid for this customer.",
+            )
+
+        # -----------------------------------------------------
+        # PHONE CHECK
+        # -----------------------------------------------------
+
+        coupon_phone = coupon.get("phone_number")
+
+        if (
+            coupon_phone
+            and phone_number
+            and coupon_phone != phone_number
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This coupon is not valid for this phone number.",
+            )
+
+        # -----------------------------------------------------
+        # SERVICE CHECK
+        # -----------------------------------------------------
+
+        coupon_service_id = coupon.get("service_id")
+
+        if (
+            coupon_service_id
+            and service_id
+            and coupon_service_id != service_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This coupon is not valid for this service.",
+            )
+
+        # -----------------------------------------------------
+        # CALCULATE DISCOUNT
+        # -----------------------------------------------------
+
+        discount_percentage = float(
+            coupon.get("discount_percentage") or 0
+        )
+
+        fixed_discount = float(
+            coupon.get("discount_amount") or 0
+        )
+
+        calculated_discount = 0.0
+
+        if discount_percentage > 0:
+            calculated_discount = (
+                subtotal * discount_percentage / 100
+            )
+
+        elif fixed_discount > 0:
+            calculated_discount = fixed_discount
+
+        calculated_discount = min(
+            calculated_discount,
+            subtotal,
+        )
+
+        final_amount = max(
+            subtotal - calculated_discount,
+            0,
+        )
+
+        return {
+            "success": True,
+            "valid": True,
+            "coupon": coupon,
+            "discount_amount": calculated_discount,
+            "final_amount": final_amount,
+            "message": "Coupon applied successfully.",
+        }
+
+    # =========================================================
+    # MARK COUPON USED
+    # =========================================================
+
+    @staticmethod
+    def mark_coupon_used(
+        coupon_id: str,
+        user_id: str,
+    ):
+
+        result = (
+            CustomerCouponRepository
+            .mark_coupon_used(
+                coupon_id=coupon_id,
+                user_id=user_id,
+            )
+        )
+
+        return {
+            "success": True,
+            "items": result,
+            "message": "Coupon marked as used.",
+        }
+</file>
+
 <file path="app/services/customer_payment_service.py">
 import razorpay
 
@@ -10473,140 +11281,37 @@ class CustomerPaymentService:
         }
 </file>
 
-<file path="app/services/customer_profile_service.py">
+<file path="app/services/customer_policy_service.py">
 from fastapi import HTTPException, status
 
-from app.repositories.customer_repository import (
-    CustomerRepository,
+from app.repositories.customer_policy_repository import (
+    CustomerPolicyRepository,
 )
 
 
-class CustomerProfileService:
-
-    # =========================================================
-    # GET PROFILE
-    # =========================================================
+class CustomerPolicyService:
 
     @staticmethod
-    def get_profile(
-        customer,
-    ):
-        user = customer["user"]
-        user_id = str(user.id)
+    def get_policy():
 
-        profile = (
-            CustomerRepository
-            .get_profile(user_id)
+        policy = (
+            CustomerPolicyRepository
+            .get_active_policy()
         )
 
-        # -----------------------------------------------------
-        # PROFILE DOES NOT EXIST
-        # -----------------------------------------------------
-
-        if not profile:
-            return {
-                "id": user_id,
-                "full_name": None,
-                "email": user.email or "",
-                "phone": None,
-                "address": None,
-                "pincode": None,
-            }
-
-        # -----------------------------------------------------
-        # AUTH EMAIL IS THE SOURCE OF TRUTH
-        # -----------------------------------------------------
+        if not policy:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Active customer policy not found.",
+            )
 
         return {
-            "id": user_id,
-            "full_name": profile.get("full_name"),
-            "email": (
-                user.email
-                or profile.get("email")
-                or ""
+            "success": True,
+            "item": policy,
+            "message": (
+                "Customer policies fetched successfully."
             ),
-            "phone": profile.get("phone"),
-            "address": profile.get("address"),
-            "pincode": profile.get("pincode"),
         }
-
-    # =========================================================
-    # UPDATE PROFILE
-    # =========================================================
-
-    @staticmethod
-    def update_profile(
-        customer,
-        full_name: str,
-        phone: str,
-        address: str,
-        pincode: str,
-    ):
-        user = customer["user"]
-        user_id = str(user.id)
-
-        # -----------------------------------------------------
-        # CLEAN PHONE
-        # -----------------------------------------------------
-
-        clean_phone = "".join(
-            character
-            for character in phone
-            if character.isdigit()
-        )
-
-        if len(clean_phone) != 10:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Phone number must be exactly "
-                    "10 digits."
-                ),
-            )
-
-        # -----------------------------------------------------
-        # CLEAN DATA
-        # -----------------------------------------------------
-
-        clean_name = full_name.strip()
-        clean_address = address.strip()
-        clean_pincode = pincode.strip()
-
-        if not clean_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Full name is required.",
-            )
-
-        # -----------------------------------------------------
-        # AUTH EMAIL
-        # -----------------------------------------------------
-
-        email = user.email or ""
-
-        # -----------------------------------------------------
-        # UPSERT PROFILE
-        # -----------------------------------------------------
-
-        CustomerRepository.upsert_profile(
-            user_id=user_id,
-            full_name=clean_name,
-            phone=clean_phone,
-            address=clean_address,
-            pincode=clean_pincode,
-            email=email,
-        )
-
-        # -----------------------------------------------------
-        # RETURN UPDATED PROFILE
-        # -----------------------------------------------------
-
-        return (
-            CustomerProfileService
-            .get_profile(
-                customer=customer,
-            )
-        )
 </file>
 
 <file path="app/services/customer_service_service.py">
@@ -10714,6 +11419,133 @@ class CustomerServiceService:
                 service_type=service_type,
             )
         )
+</file>
+
+<file path="app/services/customer_wallet_service.py">
+from fastapi import HTTPException, status
+
+from app.repositories.customer_wallet_repository import (
+    CustomerWalletRepository,
+)
+
+
+class CustomerWalletService:
+
+    # =========================================================
+    # GET WALLET
+    # =========================================================
+
+    @staticmethod
+    def get_wallet(user_id: str):
+
+        wallet = (
+            CustomerWalletRepository
+            .get_wallet(user_id)
+        )
+
+        if not wallet:
+            return {
+                "success": True,
+                "item": {
+                    "user_id": user_id,
+                    "balance": 0,
+                    "updated_at": None,
+                },
+                "message": "Wallet fetched successfully.",
+            }
+
+        return {
+            "success": True,
+            "item": wallet,
+            "message": "Wallet fetched successfully.",
+        }
+
+    # =========================================================
+    # GET TRANSACTIONS
+    # =========================================================
+
+    @staticmethod
+    def get_transactions(
+        user_id: str,
+        limit: int = 50,
+    ):
+
+        transactions = (
+            CustomerWalletRepository
+            .get_transactions(
+                user_id=user_id,
+                limit=limit,
+            )
+        )
+
+        return {
+            "success": True,
+            "items": transactions,
+            "message": (
+                "Wallet transactions fetched successfully."
+            ),
+        }
+
+    # =========================================================
+    # DEDUCT WALLET
+    # =========================================================
+
+    @staticmethod
+    def deduct_wallet(
+        user_id: str,
+        amount: float,
+        description: str = "Booking payment",
+    ):
+
+        if amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Wallet deduction amount must be greater than zero.",
+            )
+
+        wallet = (
+            CustomerWalletRepository
+            .get_wallet(user_id)
+        )
+
+        if not wallet:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Wallet not found.",
+            )
+
+        balance = float(
+            wallet.get("balance") or 0
+        )
+
+        if balance < amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Insufficient wallet balance.",
+            )
+
+        CustomerWalletRepository.deduct_wallet(
+            user_id=user_id,
+            amount=amount,
+        )
+
+        CustomerWalletRepository.create_transaction(
+            user_id=user_id,
+            amount=-amount,
+            transaction_type="booking_payment",
+            description=description,
+        )
+
+        updated_wallet = (
+            CustomerWalletRepository
+            .get_wallet(user_id)
+        )
+
+        return {
+            "success": True,
+            "item": updated_wallet,
+            "message": "Wallet amount deducted successfully.",
+        }
 </file>
 
 <file path="app/services/notification_service.py">
@@ -22302,6 +23134,47 @@ class CustomerServiceRepository:
         return response.data or []
 </file>
 
+<file path="app/schemas/customer_profile.py">
+from pydantic import BaseModel, Field
+
+
+class CustomerProfileResponse(BaseModel):
+    id: str
+    full_name: str | None = None
+    email: str
+    phone: str | None = None
+    address: str | None = None
+    pincode: str | None = None
+    referral_code : str | None  = None
+
+
+class CustomerProfileUpdateRequest(BaseModel):
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+    phone: str
+    address: str = ""
+    pincode: str = ""
+
+class CustomerCompleteProfileRequest(BaseModel):
+
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    email: str
+
+    phone: str
+
+    password: str | None = None
+
+    referral_code: str | None = None
+</file>
+
 <file path="app/schemas/customer_service.py">
 from typing import Any
 
@@ -22558,6 +23431,840 @@ class CustomerHomeService:
             "bottom_desc": "Book a service now and experience the Neatify difference.",
             "bottom_button_text": "Book a Service Now",
         }
+</file>
+
+<file path="app/services/customer_profile_service.py">
+# from fastapi import HTTPException, status
+
+# from app.repositories.customer_repository import (
+#     CustomerRepository,
+# )
+# import random
+# import string
+
+# from app.supabase.client import supabase
+
+
+# class CustomerProfileService:
+
+#     # =========================================================
+#     # GET PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def get_profile(
+#         customer,
+#     ):
+#         user = customer["user"]
+#         user_id = str(user.id)
+
+#         profile = (
+#             CustomerRepository
+#             .get_profile(user_id)
+#         )
+
+#         # -----------------------------------------------------
+#         # PROFILE DOES NOT EXIST
+#         # -----------------------------------------------------
+
+#         if not profile:
+#             return {
+#                 "id": user_id,
+#                 "full_name": None,
+#                 "email": user.email or "",
+#                 "phone": None,
+#                 "address": None,
+#                 "pincode": None,
+#                 "referral_code": None,
+#             }
+
+#         # -----------------------------------------------------
+#         # AUTH EMAIL IS THE SOURCE OF TRUTH
+#         # -----------------------------------------------------
+
+#         return {
+#             "id": user_id,
+#             "full_name": profile.get("full_name"),
+#             "email": (
+#                 user.email
+#                 or profile.get("email")
+#                 or ""
+#             ),
+#             "phone": profile.get("phone"),
+#             "address": profile.get("address"),
+#             "pincode": profile.get("pincode"),
+#             "referral_code": profile.get("referral_code"),
+#         }
+
+#     # =========================================================
+#     # UPDATE PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def update_profile(
+#         customer,
+#         full_name: str,
+#         phone: str,
+#         address: str,
+#         pincode: str,
+        
+#     ):
+#         user = customer["user"]
+#         user_id = str(user.id)
+
+#         # -----------------------------------------------------
+#         # CLEAN PHONE
+#         # -----------------------------------------------------
+
+#         clean_phone = "".join(
+#             character
+#             for character in phone
+#             if character.isdigit()
+#         )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail=(
+#                     "Phone number must be exactly "
+#                     "10 digits."
+#                 ),
+#             )
+
+#         # -----------------------------------------------------
+#         # CLEAN DATA
+#         # -----------------------------------------------------
+
+#         clean_name = full_name.strip()
+#         clean_address = address.strip()
+#         clean_pincode = pincode.strip()
+
+#         if not clean_name:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Full name is required.",
+#             )
+
+#         # -----------------------------------------------------
+#         # AUTH EMAIL
+#         # -----------------------------------------------------
+
+#         email = user.email or ""
+
+#         # -----------------------------------------------------
+#         # UPSERT PROFILE
+#         # -----------------------------------------------------
+
+#         CustomerRepository.upsert_profile(
+#             user_id=user_id,
+#             full_name=clean_name,
+#             phone=clean_phone,
+#             address=clean_address,
+#             pincode=clean_pincode,
+#             email=email,
+#         )
+
+#         # -----------------------------------------------------
+#         # RETURN UPDATED PROFILE
+#         # -----------------------------------------------------
+
+#         return (
+#             CustomerProfileService
+#             .get_profile(
+#                 customer=customer,
+#             )
+#         )
+
+#         # =========================================================
+#     # COMPLETE PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def complete_profile(
+#         customer,
+#         full_name: str,
+#         email: str,
+#         phone: str,
+#         password: str | None = None,
+#         referral_code: str | None = None,
+#     ):
+#         user = customer["user"]
+#         user_id = str(user.id)
+
+#         # -----------------------------------------------------
+#         # CLEAN DATA
+#         # -----------------------------------------------------
+
+#         clean_name = full_name.strip()
+#         clean_email = email.strip()
+#         clean_phone = "".join(
+#             character
+#             for character in phone
+#             if character.isdigit()
+#         )[-10:]
+
+#         if not clean_name:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Full name is required.",
+#             )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Phone number must be exactly 10 digits.",
+#             )
+
+#         if not clean_email:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Email is required.",
+#             )
+
+#         # -----------------------------------------------------
+#         # REFERRAL
+#         # -----------------------------------------------------
+
+#         referrer_id = None
+
+#         if referral_code and referral_code.strip():
+
+#             referral = (
+#                 supabase
+#                 .table("profile")
+#                 .select("id")
+#                 .eq(
+#                     "referral_code",
+#                     referral_code.strip().upper(),
+#                 )
+#                 .maybe_single()
+#                 .execute()
+#             )
+
+#             if not referral.data:
+#                 raise HTTPException(
+#                     status_code=400,
+#                     detail="Invalid referral code.",
+#                 )
+
+#             referrer_id = referral.data["id"]
+
+#             # Prevent self-referral
+#             if str(referrer_id) == user_id:
+#                 raise HTTPException(
+#                     status_code=400,
+#                     detail="You cannot use your own referral code.",
+#                 )
+
+#         # -----------------------------------------------------
+#         # GENERATE THIS CUSTOMER'S OWN REFERRAL CODE
+#         # -----------------------------------------------------
+
+#         existing_profile = (
+#             CustomerRepository
+#             .get_profile(user_id)
+#         )
+
+#         my_referral_code = (
+#             existing_profile.get("referral_code")
+#             if existing_profile
+#             else None
+#         )
+
+#         if not my_referral_code:
+#             prefix = (
+#                 "".join(
+#                     character
+#                     for character in clean_name.upper()
+#                     if character.isalnum()
+#                 )[:3]
+#                 or "USR"
+#             )
+
+#             suffix = "".join(
+#                 random.choices(
+#                     string.ascii_uppercase
+#                     + string.digits,
+#                     k=6,
+#                 )
+#             )
+
+#             my_referral_code = (
+#                 f"NEAT-{prefix}{suffix}"
+#             )
+
+#         # -----------------------------------------------------
+#         # UPDATE SUPABASE AUTH USER
+#         # -----------------------------------------------------
+
+#         auth_payload = {
+#             "user_metadata": {
+#                 "full_name": clean_name,
+#                 "phone_number": f"+91{clean_phone}",
+#             }
+#         }
+
+#         if password:
+#             auth_payload["password"] = password
+
+#         if clean_email != (user.email or ""):
+#             auth_payload["email"] = clean_email
+
+#         try:
+#             supabase.auth.admin.update_user_by_id(
+#                 user_id,
+#                 auth_payload,
+#             )
+#         except Exception as exc:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=str(exc),
+#             ) from exc
+
+#         # -----------------------------------------------------
+#         # PROFILE
+#         # -----------------------------------------------------
+
+#         CustomerRepository.upsert_profile(
+#             user_id=user_id,
+#             full_name=clean_name,
+#             phone=clean_phone,
+#             address=(
+#                 existing_profile.get("address")
+#                 if existing_profile
+#                 else ""
+#             ),
+#             pincode=(
+#                 existing_profile.get("pincode")
+#                 if existing_profile
+#                 else ""
+#             ),
+#             email=clean_email,
+#             referral_code=my_referral_code,
+#             referred_by_id=referrer_id,
+#         )
+
+#         # -----------------------------------------------------
+#         # SIGNUP TABLE
+#         # -----------------------------------------------------
+
+#         (
+#             supabase
+#             .table("signup")
+#             .upsert(
+#                 {
+#                     "id": user_id,
+#                     "full_name": clean_name,
+#                     "email": clean_email,
+#                     "phone": clean_phone,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         # -----------------------------------------------------
+#         # WALLET
+#         # -----------------------------------------------------
+
+#         (
+#             supabase
+#             .table("wallet")
+#             .upsert(
+#                 {
+#                     "user_id": user_id,
+#                     "balance": 0,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         # -----------------------------------------------------
+#         # REFERRAL TRACKING + WELCOME COUPON
+#         # -----------------------------------------------------
+
+#         welcome_coupon_code = None
+
+#         if referrer_id:
+
+#             (
+#                 supabase
+#                 .table("referrals")
+#                 .insert(
+#                     {
+#                         "referrer_id": referrer_id,
+#                         "referred_user_id": user_id,
+#                         "status": "pending",
+#                     }
+#                 )
+#                 .execute()
+#             )
+
+#             welcome_coupon_code = (
+#                 "WELCOME50_"
+#                 + "".join(
+#                     random.choices(
+#                         string.ascii_uppercase
+#                         + string.digits,
+#                         k=4,
+#                     )
+#                 )
+#             )
+
+#             (
+#                 supabase
+#                 .table("coupons")
+#                 .insert(
+#                     {
+#                         "coupon_code": welcome_coupon_code,
+#                         "discount_amount": 50,
+#                         "is_used": False,
+#                         "phone_number": clean_phone,
+#                     }
+#                 )
+#                 .execute()
+#             )
+
+#             # -------------------------------------------------
+#             # AUTH METADATA
+#             # -------------------------------------------------
+
+#             try:
+#                 supabase.auth.admin.update_user_by_id(
+#                     user_id,
+#                     {
+#                         "user_metadata": {
+#                             "show_welcome_reward": True,
+#                             "welcome_coupon_code": (
+#                                 welcome_coupon_code
+#                             ),
+#                         }
+#                     },
+#                 )
+#             except Exception:
+#                 pass
+
+#         # -----------------------------------------------------
+#         # RETURN COMPLETE PROFILE
+#         # -----------------------------------------------------
+
+#         return CustomerProfileService.get_profile(
+#             customer=customer,
+#         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import HTTPException, status
+
+from app.repositories.customer_repository import (
+    CustomerRepository,
+)
+
+import random
+import string
+
+
+class CustomerProfileService:
+
+    # =========================================================
+    # GET PROFILE
+    # =========================================================
+
+    @staticmethod
+    def get_profile(
+        customer,
+    ):
+        user = customer["user"]
+        user_id = str(user.id)
+
+        profile = (
+            CustomerRepository
+            .get_profile(user_id)
+        )
+
+        # -----------------------------------------------------
+        # PROFILE DOES NOT EXIST
+        # -----------------------------------------------------
+
+        if not profile:
+            return {
+                "id": user_id,
+                "full_name": None,
+                "email": user.email or "",
+                "phone": None,
+                "address": None,
+                "pincode": None,
+                "referral_code": None,
+            }
+
+        # -----------------------------------------------------
+        # AUTH EMAIL IS THE SOURCE OF TRUTH
+        # -----------------------------------------------------
+
+        return {
+            "id": user_id,
+            "full_name": profile.get("full_name"),
+            "email": (
+                user.email
+                or profile.get("email")
+                or ""
+            ),
+            "phone": profile.get("phone"),
+            "address": profile.get("address"),
+            "pincode": profile.get("pincode"),
+            "referral_code": profile.get("referral_code"),
+        }
+
+    # =========================================================
+    # UPDATE PROFILE
+    # =========================================================
+
+    @staticmethod
+    def update_profile(
+        customer,
+        full_name: str,
+        phone: str,
+        address: str,
+        pincode: str,
+    ):
+        user = customer["user"]
+        user_id = str(user.id)
+
+        # -----------------------------------------------------
+        # CLEAN PHONE
+        # -----------------------------------------------------
+
+        clean_phone = "".join(
+            character
+            for character in phone
+            if character.isdigit()
+        )
+
+        if len(clean_phone) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Phone number must be exactly "
+                    "10 digits."
+                ),
+            )
+
+        # -----------------------------------------------------
+        # CLEAN DATA
+        # -----------------------------------------------------
+
+        clean_name = full_name.strip()
+        clean_address = address.strip()
+        clean_pincode = pincode.strip()
+
+        if not clean_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Full name is required.",
+            )
+
+        # -----------------------------------------------------
+        # AUTH EMAIL
+        # -----------------------------------------------------
+
+        email = user.email or ""
+
+        # -----------------------------------------------------
+        # UPSERT PROFILE
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_profile(
+            user_id=user_id,
+            full_name=clean_name,
+            phone=clean_phone,
+            address=clean_address,
+            pincode=clean_pincode,
+            email=email,
+        )
+
+        # -----------------------------------------------------
+        # RETURN UPDATED PROFILE
+        # -----------------------------------------------------
+
+        return (
+            CustomerProfileService
+            .get_profile(
+                customer=customer,
+            )
+        )
+
+    # =========================================================
+    # COMPLETE PROFILE
+    # =========================================================
+
+    @staticmethod
+    def complete_profile(
+        customer,
+        full_name: str,
+        email: str,
+        phone: str,
+        password: str | None = None,
+        referral_code: str | None = None,
+    ):
+        user = customer["user"]
+        user_id = str(user.id)
+
+        # -----------------------------------------------------
+        # CLEAN DATA
+        # -----------------------------------------------------
+
+        clean_name = full_name.strip()
+        clean_email = email.strip()
+
+        clean_phone = "".join(
+            character
+            for character in phone
+            if character.isdigit()
+        )[-10:]
+
+        if not clean_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Full name is required.",
+            )
+
+        if len(clean_phone) != 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Phone number must be exactly 10 digits.",
+            )
+
+        if not clean_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email is required.",
+            )
+
+        # -----------------------------------------------------
+        # REFERRAL
+        # -----------------------------------------------------
+
+        referrer_id = None
+
+        if referral_code and referral_code.strip():
+
+            referral = (
+                CustomerRepository
+                .get_referrer_by_code(
+                    referral_code.strip().upper()
+                )
+            )
+
+            if not referral:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid referral code.",
+                )
+
+            referrer_id = referral["id"]
+
+            # Prevent self-referral
+            if str(referrer_id) == user_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "You cannot use your own referral code."
+                    ),
+                )
+
+        # -----------------------------------------------------
+        # GET EXISTING PROFILE
+        # -----------------------------------------------------
+
+        existing_profile = (
+            CustomerRepository
+            .get_profile(user_id)
+        )
+
+        # -----------------------------------------------------
+        # GENERATE THIS CUSTOMER'S OWN REFERRAL CODE
+        # -----------------------------------------------------
+
+        my_referral_code = (
+            existing_profile.get("referral_code")
+            if existing_profile
+            else None
+        )
+
+        if not my_referral_code:
+
+            prefix = (
+                "".join(
+                    character
+                    for character in clean_name.upper()
+                    if character.isalnum()
+                )[:3]
+                or "USR"
+            )
+
+            suffix = "".join(
+                random.choices(
+                    string.ascii_uppercase
+                    + string.digits,
+                    k=6,
+                )
+            )
+
+            my_referral_code = (
+                f"NEAT-{prefix}{suffix}"
+            )
+
+        # -----------------------------------------------------
+        # UPDATE AUTH USER
+        # -----------------------------------------------------
+
+        auth_payload = {
+            "user_metadata": {
+                "full_name": clean_name,
+                "phone_number": f"+91{clean_phone}",
+            }
+        }
+
+        if password:
+            auth_payload["password"] = password
+
+        if clean_email != (user.email or ""):
+            auth_payload["email"] = clean_email
+
+        try:
+            CustomerRepository.update_auth_user(
+                user_id=user_id,
+                auth_payload=auth_payload,
+            )
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        # -----------------------------------------------------
+        # PROFILE
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_profile(
+            user_id=user_id,
+            full_name=clean_name,
+            phone=clean_phone,
+            address=(
+                existing_profile.get("address")
+                if existing_profile
+                else ""
+            ),
+            pincode=(
+                existing_profile.get("pincode")
+                if existing_profile
+                else ""
+            ),
+            email=clean_email,
+            referral_code=my_referral_code,
+            referred_by_id=referrer_id,
+        )
+
+        # -----------------------------------------------------
+        # SIGNUP TABLE
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_signup(
+            user_id=user_id,
+            full_name=clean_name,
+            email=clean_email,
+            phone=clean_phone,
+        )
+
+        # -----------------------------------------------------
+        # WALLET
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_wallet(
+            user_id=user_id,
+        )
+
+        # -----------------------------------------------------
+        # REFERRAL TRACKING + WELCOME COUPON
+        # -----------------------------------------------------
+
+        welcome_coupon_code = None
+
+        if referrer_id:
+
+            # -------------------------------------------------
+            # CREATE REFERRAL
+            # -------------------------------------------------
+
+            CustomerRepository.create_referral(
+                referrer_id=referrer_id,
+                referred_user_id=user_id,
+            )
+
+            # -------------------------------------------------
+            # GENERATE WELCOME COUPON
+            # -------------------------------------------------
+
+            welcome_coupon_code = (
+                "WELCOME50_"
+                + "".join(
+                    random.choices(
+                        string.ascii_uppercase
+                        + string.digits,
+                        k=4,
+                    )
+                )
+            )
+
+            # -------------------------------------------------
+            # CREATE WELCOME COUPON
+            # -------------------------------------------------
+
+            CustomerRepository.create_welcome_coupon(
+                coupon_code=welcome_coupon_code,
+                phone=clean_phone,
+            )
+
+            # -------------------------------------------------
+            # AUTH METADATA
+            # -------------------------------------------------
+
+            CustomerRepository.update_welcome_reward(
+                user_id=user_id,
+                coupon_code=welcome_coupon_code,
+            )
+
+        # -----------------------------------------------------
+        # RETURN COMPLETE PROFILE
+        # -----------------------------------------------------
+
+        return (
+            CustomerProfileService
+            .get_profile(
+                customer=customer,
+            )
+        )
 </file>
 
 <file path="requirements.txt">
@@ -23114,310 +24821,6 @@ async def customer_logout(
             "access_token"
         ],
     )
-</file>
-
-<file path="app/api/v1/endpoints/customer_booking.py">
-# from fastapi import APIRouter, Depends
-
-# from app.dependencies.customer_auth import (
-#     get_current_customer,
-# )
-
-# from app.schemas.customer_booking import (
-#     CustomerBookingCreateRequest,
-#     CustomerBookingResponse,
-# )
-
-# from app.services.customer_booking_service import (
-#     CustomerBookingService,
-# )
-
-
-# router = APIRouter()
-
-
-# # =========================================================
-# # CREATE CUSTOMER BOOKING
-# # =========================================================
-
-# @router.post(
-#     "/bookings",
-#     response_model=CustomerBookingResponse,
-# )
-# async def create_customer_booking(
-#     request: CustomerBookingCreateRequest,
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-
-#     user_id = current_customer["user"].id
-
-#     return (
-#         CustomerBookingService
-#         .create_booking(
-#             user_id=str(user_id),
-#             customer_name=request.customer_name,
-#             email=request.email,
-#             phone_number=request.phone_number,
-#             full_address=request.full_address,
-#             services=request.services,
-#             booking_date=str(
-#                 request.booking_date
-#             ),
-#             booking_time=request.booking_time,
-#             total_amount=request.total_amount,
-#         )
-#     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# from fastapi import APIRouter, Depends
-
-# from app.dependencies.customer_auth import (
-#     get_current_customer,
-# )
-
-# from app.schemas.customer_booking import (
-#     CustomerBookingCreateRequest,
-#     CustomerBookingResponse,
-# )
-
-# from app.services.customer_booking_service import (
-#     CustomerBookingService,
-# )
-
-
-# router = APIRouter()
-
-
-# # =========================================================
-# # CREATE CUSTOMER BOOKING
-# # =========================================================
-
-# @router.post(
-#     "/bookings",
-#     response_model=CustomerBookingResponse,
-# )
-# async def create_customer_booking(
-#     request: CustomerBookingCreateRequest,
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-
-#     user_id = current_customer["user"].id
-
-#     return (
-#         CustomerBookingService
-#         .create_booking(
-#             user_id=str(user_id),
-
-#             customer_name=request.customer_name,
-
-#             email=str(request.email),
-
-#             phone_number=request.phone_number,
-
-#             full_address=request.full_address,
-
-#             services=request.services,
-
-#             add_ons=request.add_ons,
-
-#             booking_date=request.booking_date,
-
-#             booking_time=request.booking_time,
-
-#             latitude=request.latitude,
-
-#             longitude=request.longitude,
-
-#             location_link=request.location_link,
-#         )
-#     )
-# # =========================================================
-# # GET CUSTOMER BOOKINGS
-# # =========================================================
-
-# @router.get(
-#     "/bookings",
-# )
-# async def get_customer_bookings(
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-#     user_id = current_customer["user"].id
-
-#     bookings = (
-#         CustomerBookingService
-#         .get_customer_bookings(
-#             user_id=str(user_id)
-#         )
-#     )
-
-#     return {
-#         "success": True,
-#         "items": bookings,
-#         "message": "Bookings fetched successfully.",
-#     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from fastapi import APIRouter, Depends
-
-from app.dependencies.customer_auth import (
-    get_current_customer,
-)
-
-from app.schemas.customer_booking import (
-    CustomerBookingCreateRequest,
-    CustomerBookingResponse,
-)
-
-from app.services.customer_booking_service import (
-    CustomerBookingService,
-)
-
-
-router = APIRouter()
-
-
-# =========================================================
-# CREATE CUSTOMER BOOKING
-# =========================================================
-
-@router.post(
-    "/bookings",
-    response_model=CustomerBookingResponse,
-)
-async def create_customer_booking(
-    request: CustomerBookingCreateRequest,
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-
-    user_id = current_customer[
-        "user"
-    ].id
-
-    return (
-        CustomerBookingService
-        .create_booking(
-            user_id=str(user_id),
-
-            customer_name=(
-                request.customer_name
-            ),
-
-            email=str(
-                request.email
-            ),
-
-            phone_number=(
-                request.phone_number
-            ),
-
-            full_address=(
-                request.full_address
-            ),
-
-            services=(
-                request.services
-            ),
-
-            add_ons=(
-                request.add_ons
-            ),
-
-            booking_date=(
-                request.booking_date
-            ),
-
-            booking_time=(
-                request.booking_time
-            ),
-
-            latitude=(
-                request.latitude
-            ),
-
-            longitude=(
-                request.longitude
-            ),
-
-            location_link=(
-                request.location_link
-            ),
-        )
-    )
-
-
-# =========================================================
-# GET CUSTOMER BOOKINGS
-# =========================================================
-
-@router.get(
-    "/bookings",
-)
-async def get_customer_bookings(
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-
-    user_id = current_customer[
-        "user"
-    ].id
-
-    bookings = (
-        CustomerBookingService
-        .get_customer_bookings(
-            user_id=str(user_id)
-        )
-    )
-
-    return {
-        "success": True,
-        "items": bookings,
-        "message": (
-            "Bookings fetched successfully."
-        ),
-    }
 </file>
 
 <file path="app/repositories/customer_booking_repository.py">
@@ -25005,202 +26408,6 @@ class CustomerBookingRepository:
             response.data[0]
             if response.data
             else None
-        )
-</file>
-
-<file path="app/repositories/customer_repository.py">
-# # from app.supabase.client import supabase
-
-
-# # class CustomerRepository:
-
-# #     # =========================================================
-# #     # GET CUSTOMER PROFILE
-# #     # =========================================================
-
-# #     @staticmethod
-# #     def get_profile(user_id: str):
-# #         response = (
-# #             supabase
-# #             .table("profile")
-# #             .select(
-# #                 """
-# #                 id,
-# #                 full_name,
-# #                 email,
-# #                 phone
-# #                 """
-# #             )
-# #             .eq("id", user_id)
-# #             .maybe_single()
-# #             .execute()
-# #         )
-
-# #         return response.data
-
-# #     # =========================================================
-# #     # CHECK CUSTOMER PROFILE EXISTS
-# #     # =========================================================
-
-# #     @staticmethod
-# #     def profile_exists(user_id: str) -> bool:
-# #         profile = (
-# #             CustomerRepository
-# #             .get_profile(user_id)
-# #         )
-
-# #         return profile is not None
-    
-
-
-# from app.supabase.client import supabase
-
-
-# class CustomerRepository:
-
-#     # =========================================================
-#     # GET CUSTOMER PROFILE
-#     # =========================================================
-
-#     @staticmethod
-#     def get_profile(user_id: str):
-#         response = (
-#             supabase
-#             .table("profile")
-#             .select(
-#                 """
-#                 id,
-#                 full_name,
-#                 email,
-#                 phone,
-#                 address,
-#                 pincode
-#                 """
-#             )
-#             .eq("id", user_id)
-#             .maybe_single()
-#             .execute()
-#         )
-
-#         return response.data
-
-#     # =========================================================
-#     # CREATE / UPDATE CUSTOMER PROFILE
-#     # =========================================================
-
-#     @staticmethod
-#     def upsert_profile(
-#         user_id: str,
-#         full_name: str,
-#         phone: str,
-#         address: str,
-#         pincode: str,
-#         email: str,
-#     ):
-#         response = (
-#             supabase
-#             .table("profile")
-#             .upsert(
-#                 {
-#                     "id": user_id,
-#                     "full_name": full_name or None,
-#                     "email": email or None,
-#                     "phone": phone or None,
-#                     "address": address or None,
-#                     "pincode": pincode or None,
-#                 }
-#             )
-#             .execute()
-#         )
-
-#         return response.data
-
-#     # =========================================================
-#     # CHECK PROFILE EXISTS
-#     # =========================================================
-
-#     @staticmethod
-#     def profile_exists(user_id: str) -> bool:
-#         return (
-#             CustomerRepository
-#             .get_profile(user_id)
-#             is not None
-#         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-from app.supabase.client import supabase
-
-
-class CustomerRepository:
-
-    @staticmethod
-    def get_profile(user_id: str):
-        response = (
-            supabase
-            .table("profile")
-            .select(
-                """
-                id,
-                full_name,
-                email,
-                phone,
-                address,
-                pincode
-                """
-            )
-            .eq("id", user_id)
-            .maybe_single()
-            .execute()
-        )
-
-        return response.data
-
-    @staticmethod
-    def upsert_profile(
-        user_id: str,
-        full_name: str,
-        phone: str,
-        address: str,
-        pincode: str,
-        email: str,
-    ):
-        response = (
-            supabase
-            .table("profile")
-            .upsert(
-                {
-                    "id": user_id,
-                    "full_name": full_name or None,
-                    "email": email or None,
-                    "phone": phone or None,
-                    "address": address or None,
-                    "pincode": pincode or None,
-                }
-            )
-            .execute()
-        )
-
-        return response.data
-
-    @staticmethod
-    def profile_exists(
-        user_id: str,
-    ) -> bool:
-        return (
-            CustomerRepository
-            .get_profile(user_id)
-            is not None
         )
 </file>
 
@@ -28881,7 +30088,1142 @@ class CustomerBookingService:
             .get_customer_bookings(
                 user_id=user_id
             )
+        ) 
+
+    # =========================================================
+# GET SINGLE CUSTOMER BOOKING
+# =========================================================
+
+@staticmethod
+def get_booking(
+    booking_id: str,
+    user_id: str,
+):
+    booking = (
+        CustomerBookingRepository
+        .get_booking(
+            booking_id=booking_id,
+            user_id=user_id,
         )
+    )
+
+    if not booking:
+        raise ValueError(
+            "Booking not found."
+        )
+
+    return booking
+</file>
+
+<file path="app/api/v1/endpoints/customer_booking.py">
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_booking import (
+#     CustomerBookingCreateRequest,
+#     CustomerBookingResponse,
+# )
+
+# from app.services.customer_booking_service import (
+#     CustomerBookingService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CREATE CUSTOMER BOOKING
+# # =========================================================
+
+# @router.post(
+#     "/bookings",
+#     response_model=CustomerBookingResponse,
+# )
+# async def create_customer_booking(
+#     request: CustomerBookingCreateRequest,
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+
+#     user_id = current_customer["user"].id
+
+#     return (
+#         CustomerBookingService
+#         .create_booking(
+#             user_id=str(user_id),
+#             customer_name=request.customer_name,
+#             email=request.email,
+#             phone_number=request.phone_number,
+#             full_address=request.full_address,
+#             services=request.services,
+#             booking_date=str(
+#                 request.booking_date
+#             ),
+#             booking_time=request.booking_time,
+#             total_amount=request.total_amount,
+#         )
+#     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_booking import (
+#     CustomerBookingCreateRequest,
+#     CustomerBookingResponse,
+# )
+
+# from app.services.customer_booking_service import (
+#     CustomerBookingService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CREATE CUSTOMER BOOKING
+# # =========================================================
+
+# @router.post(
+#     "/bookings",
+#     response_model=CustomerBookingResponse,
+# )
+# async def create_customer_booking(
+#     request: CustomerBookingCreateRequest,
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+
+#     user_id = current_customer["user"].id
+
+#     return (
+#         CustomerBookingService
+#         .create_booking(
+#             user_id=str(user_id),
+
+#             customer_name=request.customer_name,
+
+#             email=str(request.email),
+
+#             phone_number=request.phone_number,
+
+#             full_address=request.full_address,
+
+#             services=request.services,
+
+#             add_ons=request.add_ons,
+
+#             booking_date=request.booking_date,
+
+#             booking_time=request.booking_time,
+
+#             latitude=request.latitude,
+
+#             longitude=request.longitude,
+
+#             location_link=request.location_link,
+#         )
+#     )
+# # =========================================================
+# # GET CUSTOMER BOOKINGS
+# # =========================================================
+
+# @router.get(
+#     "/bookings",
+# )
+# async def get_customer_bookings(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     user_id = current_customer["user"].id
+
+#     bookings = (
+#         CustomerBookingService
+#         .get_customer_bookings(
+#             user_id=str(user_id)
+#         )
+#     )
+
+#     return {
+#         "success": True,
+#         "items": bookings,
+#         "message": "Bookings fetched successfully.",
+#     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_booking import (
+#     CustomerBookingCreateRequest,
+#     CustomerBookingResponse,
+# )
+
+# from app.services.customer_booking_service import (
+#     CustomerBookingService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CREATE CUSTOMER BOOKING
+# # =========================================================
+
+# @router.post(
+#     "/bookings",
+#     response_model=CustomerBookingResponse,
+# )
+# async def create_customer_booking(
+#     request: CustomerBookingCreateRequest,
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+
+#     user_id = current_customer[
+#         "user"
+#     ].id
+
+#     return (
+#         CustomerBookingService
+#         .create_booking(
+#             user_id=str(user_id),
+
+#             customer_name=(
+#                 request.customer_name
+#             ),
+
+#             email=str(
+#                 request.email
+#             ),
+
+#             phone_number=(
+#                 request.phone_number
+#             ),
+
+#             full_address=(
+#                 request.full_address
+#             ),
+
+#             services=(
+#                 request.services
+#             ),
+
+#             add_ons=(
+#                 request.add_ons
+#             ),
+
+#             booking_date=(
+#                 request.booking_date
+#             ),
+
+#             booking_time=(
+#                 request.booking_time
+#             ),
+
+#             latitude=(
+#                 request.latitude
+#             ),
+
+#             longitude=(
+#                 request.longitude
+#             ),
+
+#             location_link=(
+#                 request.location_link
+#             ),
+#         )
+#     )
+
+
+# # =========================================================
+# # GET CUSTOMER BOOKINGS
+# # =========================================================
+
+# @router.get(
+#     "/bookings",
+# )
+# async def get_customer_bookings(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+
+#     user_id = current_customer[
+#         "user"
+#     ].id
+
+#     bookings = (
+#         CustomerBookingService
+#         .get_customer_bookings(
+#             user_id=str(user_id)
+#         )
+#     )
+
+#     return {
+#         "success": True,
+#         "items": bookings,
+#         "message": (
+#             "Bookings fetched successfully."
+#         ),
+#     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.schemas.customer_booking import (
+    CustomerBookingCreateRequest,
+    CustomerBookingResponse,
+)
+
+from app.services.customer_booking_service import (
+    CustomerBookingService,
+)
+
+
+router = APIRouter()
+
+
+# =========================================================
+# CREATE CUSTOMER BOOKING
+# =========================================================
+
+@router.post(
+    "/bookings",
+    response_model=CustomerBookingResponse,
+)
+async def create_customer_booking(
+    request: CustomerBookingCreateRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user_id = current_customer[
+        "user"
+    ].id
+
+    return (
+        CustomerBookingService
+        .create_booking(
+            user_id=str(user_id),
+
+            customer_name=(
+                request.customer_name
+            ),
+
+            email=str(
+                request.email
+            ),
+
+            phone_number=(
+                request.phone_number
+            ),
+
+            full_address=(
+                request.full_address
+            ),
+
+            services=(
+                request.services
+            ),
+
+            add_ons=(
+                request.add_ons
+            ),
+
+            booking_date=(
+                request.booking_date
+            ),
+
+            booking_time=(
+                request.booking_time
+            ),
+
+            latitude=(
+                request.latitude
+            ),
+
+            longitude=(
+                request.longitude
+            ),
+
+            location_link=(
+                request.location_link
+            ),
+        )
+    )
+
+
+# =========================================================
+# GET CUSTOMER BOOKINGS
+# =========================================================
+
+@router.get(
+    "/bookings",
+)
+async def get_customer_bookings(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user_id = current_customer[
+        "user"
+    ].id
+
+    bookings = (
+        CustomerBookingService
+        .get_customer_bookings(
+            user_id=str(user_id)
+        )
+    )
+
+    return {
+        "success": True,
+        "items": bookings,
+        "message": (
+            "Bookings fetched successfully."
+        ),
+    }
+
+
+# =========================================================
+# GET SINGLE CUSTOMER BOOKING
+# =========================================================
+
+@router.get(
+    "/bookings/{booking_id}",
+    response_model=CustomerBookingResponse,
+)
+async def get_customer_booking(
+    booking_id: str,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+
+    user_id = current_customer[
+        "user"
+    ].id
+
+    booking = (
+        CustomerBookingService
+        .get_booking(
+            booking_id=booking_id,
+            user_id=str(user_id),
+        )
+    )
+
+    return booking
+
+
+# =========================================================
+# CHECK CUSTOMER SERVICE AVAILABILITY
+# =========================================================
+
+@router.get(
+    "/service-availability",
+)
+async def check_customer_service_availability(
+    pincode: str,
+    service_categories: str,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    categories = [
+        category.strip()
+        for category in service_categories.split(",")
+        if category.strip()
+    ]
+
+    if not categories:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail="At least one service category is required.",
+        )
+
+    result = (
+        CustomerBookingService
+        .check_service_availability(
+            pincode=pincode,
+            service_categories=categories,
+        )
+    )
+
+    return result
+</file>
+
+<file path="app/repositories/customer_repository.py">
+# # from app.supabase.client import supabase
+
+
+# # class CustomerRepository:
+
+# #     # =========================================================
+# #     # GET CUSTOMER PROFILE
+# #     # =========================================================
+
+# #     @staticmethod
+# #     def get_profile(user_id: str):
+# #         response = (
+# #             supabase
+# #             .table("profile")
+# #             .select(
+# #                 """
+# #                 id,
+# #                 full_name,
+# #                 email,
+# #                 phone
+# #                 """
+# #             )
+# #             .eq("id", user_id)
+# #             .maybe_single()
+# #             .execute()
+# #         )
+
+# #         return response.data
+
+# #     # =========================================================
+# #     # CHECK CUSTOMER PROFILE EXISTS
+# #     # =========================================================
+
+# #     @staticmethod
+# #     def profile_exists(user_id: str) -> bool:
+# #         profile = (
+# #             CustomerRepository
+# #             .get_profile(user_id)
+# #         )
+
+# #         return profile is not None
+    
+
+
+# from app.supabase.client import supabase
+
+
+# class CustomerRepository:
+
+#     # =========================================================
+#     # GET CUSTOMER PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def get_profile(user_id: str):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .select(
+#                 """
+#                 id,
+#                 full_name,
+#                 email,
+#                 phone,
+#                 address,
+#                 pincode
+#                 """
+#             )
+#             .eq("id", user_id)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CREATE / UPDATE CUSTOMER PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def upsert_profile(
+#         user_id: str,
+#         full_name: str,
+#         phone: str,
+#         address: str,
+#         pincode: str,
+#         email: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .upsert(
+#                 {
+#                     "id": user_id,
+#                     "full_name": full_name or None,
+#                     "email": email or None,
+#                     "phone": phone or None,
+#                     "address": address or None,
+#                     "pincode": pincode or None,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CHECK PROFILE EXISTS
+#     # =========================================================
+
+#     @staticmethod
+#     def profile_exists(user_id: str) -> bool:
+#         return (
+#             CustomerRepository
+#             .get_profile(user_id)
+#             is not None
+#         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from app.supabase.client import supabase
+
+
+# class CustomerRepository:
+
+#     @staticmethod
+#     def get_profile(user_id: str):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .select(
+#                 """
+#                 id,
+#                 full_name,
+#                 email,
+#                 phone,
+#                 address,
+#                 pincode,
+#                 referral_code
+#                 """
+#             )
+#             .eq("id", user_id)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     @staticmethod
+#     def upsert_profile(
+#         user_id: str,
+#         full_name: str,
+#         phone: str,
+#         address: str,
+#         pincode: str,
+#         email: str,
+#         referral_code: str | None = None,
+#         referred_by_id: str | None = None,
+
+#     ):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .upsert(
+#                 {
+#                     "id": user_id,
+#                     "full_name": full_name or None,
+#                     "email": email or None,
+#                     "phone": phone or None,
+#                     "address": address or None,
+#                     "pincode": pincode or None,
+#                     "referral_code": referral_code,
+#                     "referred_by_id": referred_by_id,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     @staticmethod
+#     def profile_exists(
+#         user_id: str,
+#     ) -> bool:
+#         return (
+#             CustomerRepository
+#             .get_profile(user_id)
+#             is not None
+#         )
+
+#     # =========================================================
+#     # GET CUSTOMER COUPON
+#     # =========================================================
+
+#     @staticmethod
+#     def get_customer_coupon(
+#         phone: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("coupons")
+#             .select(
+#                 """
+#                 id,
+#                 coupon_code,
+#                 discount_percentage,
+#                 discount_amount,
+#                 phone_number,
+#                 is_used,
+#                 is_active,
+#                 service_id
+#                 """
+#             )
+#             .or_(
+#                 f"phone_number.eq.{phone},"
+#                 f"phone_number.eq.91{phone},"
+#                 f"phone_number.eq.+91{phone}"
+#             )
+#             .eq("is_active", True)
+#             .eq("is_used", False)
+#             .order(
+#                 "created_at",
+#                 desc=True,
+#             )
+#             .limit(1)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # GET APP POLICIES
+#     # =========================================================
+
+#     @staticmethod
+#     def get_app_policies():
+#         response = (
+#             supabase
+#             .table("app_policies")
+#             .select(
+#                 """
+#                 user_policies,
+#                 terms_and_conditions
+#                 """
+#             )
+#             .eq("is_active", True)
+#             .limit(1)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from app.supabase.client import supabase
+
+
+class CustomerRepository:
+
+    # =========================================================
+    # GET CUSTOMER PROFILE
+    # =========================================================
+
+    @staticmethod
+    def get_profile(user_id: str):
+        response = (
+            supabase
+            .table("profile")
+            .select(
+                """
+                id,
+                full_name,
+                email,
+                phone,
+                address,
+                pincode,
+                referral_code
+                """
+            )
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # CREATE / UPDATE CUSTOMER PROFILE
+    # =========================================================
+
+    @staticmethod
+    def upsert_profile(
+        user_id: str,
+        full_name: str,
+        phone: str,
+        address: str,
+        pincode: str,
+        email: str,
+        referral_code: str | None = None,
+        referred_by_id: str | None = None,
+    ):
+        data = {
+            "id": user_id,
+            "full_name": full_name or None,
+            "email": email or None,
+            "phone": phone or None,
+            "address": address or None,
+            "pincode": pincode or None,
+        }
+
+        # Only update referral fields when explicitly supplied.
+        # This prevents normal profile updates from clearing
+        # an existing referral relationship.
+        if referral_code is not None:
+            data["referral_code"] = referral_code
+
+        if referred_by_id is not None:
+            data["referred_by_id"] = referred_by_id
+
+        response = (
+            supabase
+            .table("profile")
+            .upsert(data)
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # CHECK PROFILE EXISTS
+    # =========================================================
+
+    @staticmethod
+    def profile_exists(
+        user_id: str,
+    ) -> bool:
+        return (
+            CustomerRepository
+            .get_profile(user_id)
+            is not None
+        )
+
+    # =========================================================
+    # GET REFERRER BY REFERRAL CODE
+    # =========================================================
+
+    @staticmethod
+    def get_referrer_by_code(
+        referral_code: str,
+    ):
+        response = (
+            supabase
+            .table("profile")
+            .select("id")
+            .eq(
+                "referral_code",
+                referral_code,
+            )
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # UPDATE SUPABASE AUTH USER
+    # =========================================================
+
+    @staticmethod
+    def update_auth_user(
+        user_id: str,
+        auth_payload: dict,
+    ):
+        return (
+            supabase
+            .auth
+            .admin
+            .update_user_by_id(
+                user_id,
+                auth_payload,
+            )
+        )
+
+    # =========================================================
+    # UPSERT SIGNUP
+    # =========================================================
+
+    @staticmethod
+    def upsert_signup(
+        user_id: str,
+        full_name: str,
+        email: str,
+        phone: str,
+    ):
+        response = (
+            supabase
+            .table("signup")
+            .upsert(
+                {
+                    "id": user_id,
+                    "full_name": full_name,
+                    "email": email,
+                    "phone": phone,
+                }
+            )
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # UPSERT WALLET
+    # =========================================================
+
+    @staticmethod
+    def upsert_wallet(
+        user_id: str,
+    ):
+        response = (
+            supabase
+            .table("wallet")
+            .upsert(
+                {
+                    "user_id": user_id,
+                    "balance": 0,
+                }
+            )
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # CREATE REFERRAL
+    # =========================================================
+
+    @staticmethod
+    def create_referral(
+        referrer_id: str,
+        referred_user_id: str,
+    ):
+        response = (
+            supabase
+            .table("referrals")
+            .insert(
+                {
+                    "referrer_id": referrer_id,
+                    "referred_user_id": referred_user_id,
+                    "status": "pending",
+                }
+            )
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # CREATE WELCOME COUPON
+    # =========================================================
+
+    @staticmethod
+    def create_welcome_coupon(
+        coupon_code: str,
+        phone: str,
+    ):
+        response = (
+            supabase
+            .table("coupons")
+            .insert(
+                {
+                    "coupon_code": coupon_code,
+                    "discount_amount": 50,
+                    "is_used": False,
+                    "phone_number": phone,
+                }
+            )
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # UPDATE WELCOME REWARD METADATA
+    # =========================================================
+
+    @staticmethod
+    def update_welcome_reward(
+        user_id: str,
+        coupon_code: str,
+    ):
+        try:
+            return (
+                supabase
+                .auth
+                .admin
+                .update_user_by_id(
+                    user_id,
+                    {
+                        "user_metadata": {
+                            "show_welcome_reward": True,
+                            "welcome_coupon_code": coupon_code,
+                        }
+                    },
+                )
+            )
+        except Exception:
+            return None
+
+    # =========================================================
+    # GET CUSTOMER COUPON
+    # =========================================================
+
+    @staticmethod
+    def get_customer_coupon(
+        phone: str,
+    ):
+        response = (
+            supabase
+            .table("coupons")
+            .select(
+                """
+                id,
+                coupon_code,
+                discount_percentage,
+                discount_amount,
+                phone_number,
+                is_used,
+                is_active,
+                service_id
+                """
+            )
+            .or_(
+                f"phone_number.eq.{phone},"
+                f"phone_number.eq.91{phone},"
+                f"phone_number.eq.+91{phone}"
+            )
+            .eq("is_active", True)
+            .eq("is_used", False)
+            .order(
+                "created_at",
+                desc=True,
+            )
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # GET APP POLICIES
+    # =========================================================
+
+    @staticmethod
+    def get_app_policies():
+        response = (
+            supabase
+            .table("app_policies")
+            .select(
+                """
+                user_policies,
+                terms_and_conditions
+                """
+            )
+            .eq("is_active", True)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
 </file>
 
 <file path="app/api/v1/api.py">
@@ -29611,11 +31953,18 @@ from app.api.v1.endpoints.customer_cart import (
 )
 
 from app.api.v1.endpoints import customer_home
+
+from app.api.v1.endpoints import customer_coupon
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
+
+from app.api.v1.endpoints import customer_policy
 api_router = APIRouter()
 
+from app.api.v1.endpoints import customer_wallet
+
+from app.api.v1.endpoints import customer_referral
 
 # =========================================================
 # SYSTEM
@@ -29754,6 +32103,31 @@ api_router.include_router(
     customer_home.router,
     prefix="/customer",
     tags=["Customer Home"],
+)
+
+api_router.include_router(
+    customer_coupon.router,
+    prefix="/customer",
+    tags=["Customer Coupon"],
+)
+
+api_router.include_router(
+    customer_policy.router,
+    prefix="/customer",
+    tags=["Customer Policy"],
+)
+
+
+api_router.include_router(
+    customer_wallet.router,
+    prefix="/customer",
+    tags=["Customer Wallet"],
+)
+
+api_router.include_router(
+    customer_referral.router,
+    prefix="/customer",
+    tags=["Customer Referral"],
 )
 </file>
 

@@ -14,6 +14,14 @@ from app.services.customer_profile_service import (
 )
 
 
+from app.schemas.customer_profile import (
+    CustomerProfileResponse,
+    CustomerProfileUpdateRequest,
+    CustomerCompleteProfileRequest,
+)
+
+
+
 router = APIRouter()
 
 
@@ -60,5 +68,33 @@ async def update_customer_profile(
             phone=request.phone,
             address=request.address,
             pincode=request.pincode,
+        )
+    )
+
+
+
+# =========================================================
+# COMPLETE CUSTOMER PROFILE
+# =========================================================
+
+@router.post(
+    "/complete",
+    response_model=CustomerProfileResponse,
+)
+async def complete_customer_profile(
+    request: CustomerCompleteProfileRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return (
+        CustomerProfileService
+        .complete_profile(
+            customer=current_customer,
+            full_name=request.full_name,
+            email=request.email,
+            phone=request.phone,
+            password=request.password,
+            referral_code=request.referral_code,
         )
     )

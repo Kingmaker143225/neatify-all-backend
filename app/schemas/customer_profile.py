@@ -20,3 +20,19 @@ class CustomerProfileUpdateRequest(BaseModel):
     phone: str
     address: str = ""
     pincode: str = ""
+
+class CustomerCompleteProfileRequest(BaseModel):
+
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    email: str
+
+    phone: str
+
+    password: str | None = None
+
+    referral_code: str | None = None
