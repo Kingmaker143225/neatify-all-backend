@@ -739,6 +739,9 @@ from app.api.v1.endpoints import customer_referral
 
 from fastapi import APIRouter
 from app.api.v1.endpoints.customer_auth import router as customer_auth_router
+from app.api.v1.endpoints.customer_offers import router as customer_offers_router
+
+from app.api.v1.endpoints.customer_schedule import router as customer_schedule_router
 
 
 # =========================================================
@@ -909,4 +912,16 @@ api_router.include_router(
     customer_auth_router,
     prefix="/customer/auth",
     tags=["Customer Authentication"],
+)
+
+api_router.include_router(
+    customer_offers_router,
+    prefix="/customer",
+    tags=["Customer Offers"],
+)
+
+api_router.include_router(
+    customer_schedule_router,
+    prefix="/customer",
+    tags=["Customer Schedule"],
 )

@@ -484,8 +484,6 @@
 
 
 
-
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies.customer_auth import (
@@ -697,7 +695,7 @@ async def customer_logout(
 
 
 # =========================================================
-# ✅ GOOGLE OAUTH - GET OAUTH URL (FIXED)
+# ✅ GOOGLE OAUTH - GET OAUTH URL
 # =========================================================
 
 @router.post(
@@ -717,7 +715,6 @@ async def get_google_oauth_url(
         print(f"🔐 [GoogleAuth] Generating OAuth URL for redirect: {request.redirect_to}")
         
         # ✅ Use Supabase for OAuth URL generation
-        # Supabase raises exceptions on error, doesn't return .error
         response = supabase.auth.sign_in_with_oauth({
             "provider": "google",
             "options": {
@@ -725,8 +722,6 @@ async def get_google_oauth_url(
             },
         })
         
-        # ✅ The response is an object with .data and .url properties
-        # Check if response has data attribute
         oauth_url = None
         
         if hasattr(response, 'data'):
@@ -765,7 +760,7 @@ async def get_google_oauth_url(
 
 
 # =========================================================
-# ✅ GOOGLE OAUTH - EXCHANGE CODE FOR TOKENS (FIXED)
+# ✅ GOOGLE OAUTH - EXCHANGE CODE FOR TOKENS
 # =========================================================
 
 @router.post(
@@ -791,12 +786,10 @@ async def exchange_google_auth_code(
         # STEP 1: Exchange code for session using Supabase
         # =========================================================
         
-        # ✅ Supabase raises exceptions on error, doesn't return .error
         response = supabase.auth.exchange_code_for_session(
             request.auth_code
         )
         
-        # ✅ Extract user and session from response
         user = None
         session = None
         
@@ -853,7 +846,6 @@ async def exchange_google_auth_code(
         is_new_user = False
         if not profile_exists:
             is_new_user = True
-            # Create user profile
             phone = user.user_metadata.get("phone", "") if hasattr(user, 'user_metadata') else ""
             CustomerRepository.upsert_profile(
                 user_id=user_id,
@@ -873,7 +865,6 @@ async def exchange_google_auth_code(
         
         print(f"✅ [GoogleAuth] Backend token generated")
         
-        # Get refresh token if available
         refresh_token = ""
         if session:
             if hasattr(session, 'refresh_token'):
@@ -900,4 +891,98 @@ async def exchange_google_auth_code(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to exchange auth code: {str(e)}"
+        )
+
+
+# =========================================================
+# ✅ CUSTOMER PASSWORD RESET (NEW)
+# =========================================================
+
+from pydantic import BaseModel  # Already imported at top of file
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    redirect_to: str
+
+
+class ResetPasswordConfirmRequest(BaseModel):
+    access_token: str
+    refresh_token: str
+    new_password: str
+
+
+@router.post("/reset-password")
+async def reset_password(request: ResetPasswordRequest):
+    """
+    Send password reset email to the user.
+    """
+    try:
+        print(f"🔐 [PasswordReset] Sending reset email to: {request.email}")
+        
+        # ✅ Use Supabase to send reset email
+        response = supabase.auth.reset_password_for_email(
+            request.email,
+            options={"redirectTo": request.redirect_to}
+        )
+        
+        return {
+            "success": True,
+            "message": "Reset email sent successfully"
+        }
+        
+    except Exception as e:
+        print(f"❌ [PasswordReset] Error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to send reset email: {str(e)}"
+        )
+
+
+@router.post("/reset-password/confirm")
+async def reset_password_confirm(request: ResetPasswordConfirmRequest):
+    """
+    Confirm password reset with new password using access/refresh tokens.
+    """
+    try:
+        print(f"🔐 [PasswordReset] Confirming password reset...")
+        
+        # ✅ Set session with tokens
+        response = supabase.auth.set_session(
+            request.access_token,
+            request.refresh_token
+        )
+        
+        if not response.user:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired tokens"
+            )
+        
+        # ✅ Update password
+        update_response = supabase.auth.update_user({
+            "password": request.new_password
+        })
+        
+        if not update_response.user:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to update password"
+            )
+        
+        # ✅ Generate backend JWT token
+        user_id = str(update_response.user.id)
+        backend_token = CustomerAuthService._create_backend_token(user_id)
+        
+        return {
+            "success": True,
+            "message": "Password updated successfully",
+            "access_token": backend_token
+        }
+        
+    except Exception as e:
+        print(f"❌ [PasswordReset] Error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to update password: {str(e)}"
         )
