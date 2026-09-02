@@ -1223,22 +1223,21 @@ class CustomerBookingRepository:
         return response.data or []
 
     # =========================================================
-    # FIND HUB LOCATION BY PINCODE
+    # FIND ALL HUB LOCATIONS BY PINCODE
     # =========================================================
 
     @staticmethod
-    def get_hub_location_by_pincode(
+    def get_hub_locations_by_pincode(
         pincode: str,
     ):
         """
-        Legacy/helper lookup.
+        Find all active hub locations mapped to a pincode.
 
-        NOTE:
-        This method is no longer the first step of
-        service availability.
+        Source:
+            hub_locations
 
-        Availability first checks:
-            neatify_service_areas
+        A pincode may belong to more than one hub,
+        so we intentionally return ALL matching rows.
         """
 
         response = (
@@ -1261,15 +1260,10 @@ class CustomerBookingRepository:
                 "is_active",
                 True,
             )
-            .limit(1)
             .execute()
         )
 
-        return (
-            response.data[0]
-            if response.data
-            else None
-        )
+        return response.data or []
 
     # =========================================================
     # GET HUB CATEGORY RECORDS
@@ -1303,9 +1297,13 @@ class CustomerBookingRepository:
                 assigned_staff
                 """
             )
-            .eq(
+            # .eq(
+            #     "category",
+            #     category,
+            # )
+            .ilike(
                 "category",
-                category,
+                category.strip(),
             )
             .execute()
         )
