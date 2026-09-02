@@ -1056,8 +1056,6 @@
 
 
 
-
-
 from app.supabase.client import supabase
 
 
@@ -1130,6 +1128,101 @@ class CustomerBookingRepository:
         return response.data or []
 
     # =========================================================
+    # FIND SERVICE AREAS BY PINCODE
+    # =========================================================
+
+    @staticmethod
+    def get_service_areas_by_pincode(
+        pincode: str,
+    ):
+        """
+        Find ALL service areas configured for a customer pincode.
+
+        Source:
+            neatify_service_areas
+
+        Example:
+            500005
+                -> CRP Camp
+                -> Keshogiri
+                -> Mamidipalli
+        """
+
+        response = (
+            supabase
+            .table("neatify_service_areas")
+            .select(
+                """
+                id,
+                area_name,
+                pincode
+                """
+            )
+            .eq(
+                "pincode",
+                str(pincode).strip(),
+            )
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
+    # FIND HUB LOCATIONS
+    # =========================================================
+
+    @staticmethod
+    def get_hub_locations(
+        hub_name: str | None = None,
+        location_name: str | None = None,
+    ):
+        """
+        Find active hub locations.
+
+        This is deliberately NOT used as the first
+        pincode availability check.
+
+        neatify_service_areas is checked first.
+        """
+
+        query = (
+            supabase
+            .table("hub_locations")
+            .select(
+                """
+                id,
+                hub_name,
+                location_name,
+                pincode,
+                is_active
+                """
+            )
+            .eq(
+                "is_active",
+                True,
+            )
+        )
+
+        if hub_name:
+            query = query.eq(
+                "hub_name",
+                hub_name,
+            )
+
+        if location_name:
+            query = query.ilike(
+                "location_name",
+                location_name.strip(),
+            )
+
+        response = (
+            query
+            .execute()
+        )
+
+        return response.data or []
+
+    # =========================================================
     # FIND HUB LOCATION BY PINCODE
     # =========================================================
 
@@ -1138,10 +1231,14 @@ class CustomerBookingRepository:
         pincode: str,
     ):
         """
-        Find the active hub/location for a customer pincode.
+        Legacy/helper lookup.
 
-        Source:
-            hub_locations
+        NOTE:
+        This method is no longer the first step of
+        service availability.
+
+        Availability first checks:
+            neatify_service_areas
         """
 
         response = (
@@ -1175,41 +1272,45 @@ class CustomerBookingRepository:
         )
 
     # =========================================================
-    # FIND NEATIFY SERVICE AREA BY PINCODE
+    # GET HUB CATEGORY RECORDS
     # =========================================================
 
     @staticmethod
-    def get_service_area_by_pincode(
-        pincode: str,
+    def get_hub_category_records(
+        category: str,
     ):
         """
-        Check whether pincode exists in
+        Get all hub/category mappings for a category.
+
+        Source:
+            hub_category_counts
+
+        We intentionally fetch all matching hubs because
+        the pincode has already been resolved through
         neatify_service_areas.
         """
 
         response = (
             supabase
-            .table("neatify_service_areas")
+            .table("hub_category_counts")
             .select(
                 """
                 id,
-                area_name,
-                pincode
+                hub,
+                location,
+                category,
+                count,
+                assigned_staff
                 """
             )
             .eq(
-                "pincode",
-                str(pincode).strip(),
+                "category",
+                category,
             )
-            .limit(1)
             .execute()
         )
 
-        return (
-            response.data[0]
-            if response.data
-            else None
-        )
+        return response.data or []
 
     # =========================================================
     # GET HUB CATEGORY RECORD
@@ -1224,9 +1325,6 @@ class CustomerBookingRepository:
         """
         Check whether a category has partners
         in the requested hub AND location.
-
-        Source:
-            hub_category_counts
 
         Conditions:
             hub matches
@@ -1282,8 +1380,6 @@ class CustomerBookingRepository:
                 .lower()
             )
 
-            # hub_category_counts.location is a
-            # comma-separated list of locations.
             locations = [
                 item.strip().lower()
                 for item in location_value.split(",")
@@ -1308,7 +1404,8 @@ class CustomerBookingRepository:
                     record.get(
                         "assigned_staff"
                     ) or ""
-                ).strip()
+                )
+                .strip()
             )
 
             if count > 0 and assigned_staff:
@@ -1336,10 +1433,6 @@ class CustomerBookingRepository:
         location_link: str | None = None,
         hub_name: str | None = None,
     ):
-        """
-        Create booking only after all availability
-        checks have passed.
-        """
 
         insert_data = {
             "customer_name": customer_name,
@@ -1403,6 +1496,7 @@ class CustomerBookingRepository:
         booking_id: str,
         user_id: str,
     ):
+
         response = (
             supabase
             .table("bookings")
@@ -1431,6 +1525,7 @@ class CustomerBookingRepository:
         user_id: str,
         razorpay_order_id: str,
     ):
+
         response = (
             supabase
             .table("bookings")
@@ -1438,10 +1533,8 @@ class CustomerBookingRepository:
                 {
                     "razorpay_order_id":
                         razorpay_order_id,
-
                     "payment_status":
                         "pending",
-
                     "payment_verified":
                         False,
                 }
@@ -1471,6 +1564,7 @@ class CustomerBookingRepository:
     def get_customer_bookings(
         user_id: str,
     ):
+
         response = (
             supabase
             .table("bookings")
@@ -1501,19 +1595,16 @@ class CustomerBookingRepository:
         razorpay_signature: str,
         payment_method: str | None = None,
     ):
+
         update_data = {
             "razorpay_order_id":
                 razorpay_order_id,
-
             "razorpay_payment_id":
                 razorpay_payment_id,
-
             "razorpay_signature":
                 razorpay_signature,
-
             "payment_status":
                 "paid",
-
             "payment_verified":
                 True,
         }
@@ -1555,6 +1646,7 @@ class CustomerBookingRepository:
         booking_id: str,
         user_id: str,
     ):
+
         response = (
             supabase
             .table("bookings")
@@ -1562,7 +1654,6 @@ class CustomerBookingRepository:
                 {
                     "payment_status":
                         "failed",
-
                     "payment_verified":
                         False,
                 }

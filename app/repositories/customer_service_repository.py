@@ -305,8 +305,21 @@ class CustomerServiceRepository:
         main_category_id,
         slug,
         sort_order,
-        tax_percent
+        tax_percent,
+        duration,
+        image,
+        gallery_images,
+        
+        description,
+        original_price,
+        discount_percent,
+        discount_label,
+        work_includes,
+        work_not_included,
+        how_it_works
     """
+
+
 
     # =========================================================
     # HELPERS

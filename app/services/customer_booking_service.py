@@ -1442,23 +1442,23 @@ class CustomerBookingService:
         service_categories: list[str],
     ):
         """
-        Booking availability flow:
+        Service availability flow:
 
-        Customer pincode
+        1. Customer pincode
               ↓
-        hub_locations
+        2. neatify_service_areas
               ↓
-        Hub + Location
+        3. Get allowed area/location
               ↓
-        neatify_service_areas
+        4. hub_category_counts
               ↓
-        hub_category_counts
+        5. Resolve hub
               ↓
-        Category
+        6. hub_locations
               ↓
-        Partner count + assigned staff
+        7. Partner count + assigned staff
               ↓
-        AVAILABLE
+        8. AVAILABLE
         """
 
         pincode = str(
@@ -1466,17 +1466,18 @@ class CustomerBookingService:
         ).strip()
 
         # =====================================================
-        # STEP 1 - HUB LOCATION
+        # STEP 1
+        # PINCODE → NEATIFY SERVICE AREAS
         # =====================================================
 
-        hub_location = (
+        service_areas = (
             CustomerBookingRepository
-            .get_hub_location_by_pincode(
+            .get_service_areas_by_pincode(
                 pincode=pincode,
             )
         )
 
-        if not hub_location:
+        if not service_areas:
 
             return {
                 "available": False,
@@ -1488,58 +1489,38 @@ class CustomerBookingService:
                 "pincode": pincode,
                 "hub": None,
                 "location": None,
+                "service_area": [],
                 "services": [],
             }
 
-        hub_name = str(
-            hub_location.get(
-                "hub_name"
-            ) or ""
-        ).strip()
+        # All areas belonging to this pincode.
+        area_names = [
+            str(
+                area.get("area_name") or ""
+            ).strip()
+            for area in service_areas
+            if area.get("area_name")
+        ]
 
-        location_name = str(
-            hub_location.get(
-                "location_name"
-            ) or ""
-        ).strip()
-
-        if not hub_name or not location_name:
+        if not area_names:
 
             return {
                 "available": False,
-                "reason": "INVALID_HUB_LOCATION",
+                "reason": "INVALID_SERVICE_AREA",
                 "message": (
-                    "The selected service area "
-                    "is not configured correctly."
+                    "The service area is not "
+                    "configured correctly."
                 ),
                 "pincode": pincode,
-                "hub": hub_name,
-                "location": location_name,
+                "hub": None,
+                "location": None,
+                "service_area": service_areas,
                 "services": [],
             }
 
         # =====================================================
-        # STEP 2 - NEATIFY SERVICE AREA
-        # =====================================================
-
-        service_area = (
-            CustomerBookingRepository
-            .get_service_area_by_pincode(
-                pincode=pincode,
-            )
-        )
-
-        # NOTE:
-        #
-        # hub_locations is the actual hub/location mapping.
-        #
-        # neatify_service_areas is also checked, but is not
-        # made a hard rejection because your current database
-        # contains valid hub_locations whose pincodes are not
-        # present in neatify_service_areas.
-
-        # =====================================================
-        # STEP 3 - EACH SERVICE CATEGORY
+        # STEP 2
+        # VALIDATE SERVICE CATEGORIES
         # =====================================================
 
         checked_services = []
@@ -1560,112 +1541,274 @@ class CustomerBookingService:
                         "no service category."
                     ),
                     "pincode": pincode,
-                    "hub": hub_name,
-                    "location": location_name,
+                    "hub": None,
+                    "location": None,
+                    "service_area": service_areas,
                     "services": checked_services,
                 }
 
-            # -------------------------------------------------
-            # Find category in this exact hub + location
-            # -------------------------------------------------
+            # =================================================
+            # STEP 3
+            # CATEGORY → HUB CATEGORY COUNTS
+            # =================================================
 
-            record = (
+            records = (
                 CustomerBookingRepository
-                .get_hub_category_record(
-                    hub_name=hub_name,
-                    location_name=location_name,
+                .get_hub_category_records(
                     category=category,
                 )
             )
 
-            if not record:
+            if not records:
 
                 return {
                     "available": False,
                     "reason": "SERVICE_NOT_AVAILABLE",
                     "message": (
                         f"{category} service is not "
-                        f"available in {location_name}."
+                        "available in this area."
+                    ),
+                    "pincode": pincode,
+                    "hub": None,
+                    "location": None,
+                    "service_area": service_areas,
+                    "services": checked_services,
+                }
+
+            matched_record = None
+
+            # =================================================
+            # STEP 4
+            # MATCH SERVICE AREA WITH HUB CATEGORY LOCATION
+            # =================================================
+
+            normalized_area_names = {
+                area.lower()
+                for area in area_names
+            }
+
+            for record in records:
+
+                location_value = str(
+                    record.get("location") or ""
+                ).strip()
+
+                if not location_value:
+                    continue
+
+                mapped_locations = {
+                    item.strip().lower()
+                    for item in location_value.split(",")
+                    if item.strip()
+                }
+
+                # At least one service-area location
+                # must belong to this hub/category mapping.
+                if not normalized_area_names.intersection(
+                    mapped_locations
+                ):
+                    continue
+
+                try:
+                    count = int(
+                        record.get("count") or 0
+                    )
+                except (
+                    ValueError,
+                    TypeError,
+                ):
+                    count = 0
+
+                assigned_staff = str(
+                    record.get(
+                        "assigned_staff"
+                    ) or ""
+                ).strip()
+
+                if count <= 0:
+                    continue
+
+                if not assigned_staff:
+                    continue
+
+                matched_record = record
+                break
+
+            # =================================================
+            # NO HUB/CATEGORY MATCH
+            # =================================================
+
+            if not matched_record:
+
+                return {
+                    "available": False,
+                    "reason": "SERVICE_NOT_AVAILABLE",
+                    "message": (
+                        f"{category} service is not "
+                        "available in this area."
+                    ),
+                    "pincode": pincode,
+                    "hub": None,
+                    "location": None,
+                    "service_area": service_areas,
+                    "services": checked_services,
+                }
+
+            hub_name = str(
+                matched_record.get("hub") or ""
+            ).strip()
+
+            location_name = str(
+                matched_record.get("location") or ""
+            ).strip()
+
+            if not hub_name:
+
+                return {
+                    "available": False,
+                    "reason": "INVALID_HUB",
+                    "message": (
+                        "The service hub is not "
+                        "configured correctly."
+                    ),
+                    "pincode": pincode,
+                    "hub": None,
+                    "location": location_name,
+                    "service_area": service_areas,
+                    "services": checked_services,
+                }
+
+            # =================================================
+            # STEP 5
+            # HUB → HUB LOCATIONS
+            # =================================================
+
+            hub_locations = (
+                CustomerBookingRepository
+                .get_hub_locations(
+                    hub_name=hub_name,
+                )
+            )
+
+            if not hub_locations:
+
+                return {
+                    "available": False,
+                    "reason": "INVALID_HUB_LOCATION",
+                    "message": (
+                        "The selected service hub "
+                        "is not configured."
                     ),
                     "pincode": pincode,
                     "hub": hub_name,
                     "location": location_name,
-                    "service_area": service_area,
+                    "service_area": service_areas,
                     "services": checked_services,
                 }
 
-            count = record.get(
-                "count"
-            ) or 0
+            # =================================================
+            # STEP 6
+            # VALIDATE LOCATION AGAINST HUB LOCATIONS
+            # =================================================
+
+            valid_hub_location = None
+
+            for hub_location in hub_locations:
+
+                configured_location = str(
+                    hub_location.get(
+                        "location_name"
+                    ) or ""
+                ).strip().lower()
+
+                configured_pincode = str(
+                    hub_location.get(
+                        "pincode"
+                    ) or ""
+                ).strip()
+
+                if (
+                    configured_pincode == pincode
+                    or configured_location
+                    in {
+                        item.strip().lower()
+                        for item in location_name.split(",")
+                    }
+                ):
+                    valid_hub_location = hub_location
+                    break
+
+                # Also allow the service-area name to
+                # identify the hub location.
+                if any(
+                    area.lower()
+                    in configured_location
+                    for area in area_names
+                ):
+                    valid_hub_location = hub_location
+                    break
+
+            if not valid_hub_location:
+
+                return {
+                    "available": False,
+                    "reason": "INVALID_HUB_LOCATION",
+                    "message": (
+                        "The selected service area "
+                        "is not mapped to the hub."
+                    ),
+                    "pincode": pincode,
+                    "hub": hub_name,
+                    "location": location_name,
+                    "service_area": service_areas,
+                    "services": checked_services,
+                }
+
+            # =================================================
+            # SUCCESS FOR THIS CATEGORY
+            # =================================================
 
             try:
-                count = int(count)
+                partner_count = int(
+                    matched_record.get(
+                        "count"
+                    ) or 0
+                )
             except (
                 ValueError,
                 TypeError,
             ):
-                count = 0
-
-            assigned_staff = str(
-                record.get(
-                    "assigned_staff"
-                ) or ""
-            ).strip()
-
-            # -------------------------------------------------
-            # No partner
-            # -------------------------------------------------
-
-            if count <= 0:
-
-                return {
-                    "available": False,
-                    "reason": "NO_PARTNER_AVAILABLE",
-                    "message": (
-                        f"No partner is available "
-                        f"for {category} service "
-                        f"in {location_name}."
-                    ),
-                    "pincode": pincode,
-                    "hub": hub_name,
-                    "location": location_name,
-                    "service_area": service_area,
-                    "services": checked_services,
-                }
-
-            # -------------------------------------------------
-            # No assigned staff
-            # -------------------------------------------------
-
-            if not assigned_staff:
-
-                return {
-                    "available": False,
-                    "reason": "NO_PARTNER_AVAILABLE",
-                    "message": (
-                        f"No partner is currently "
-                        f"assigned for {category} "
-                        f"in {location_name}."
-                    ),
-                    "pincode": pincode,
-                    "hub": hub_name,
-                    "location": location_name,
-                    "service_area": service_area,
-                    "services": checked_services,
-                }
+                partner_count = 0
 
             checked_services.append(
                 {
                     "category": category,
                     "available": True,
-                    "partner_count": count,
-                    "assigned_staff": assigned_staff,
+                    "partner_count": partner_count,
+                    "assigned_staff": str(
+                        matched_record.get(
+                            "assigned_staff"
+                        ) or ""
+                    ).strip(),
                 }
             )
 
         # =====================================================
         # EVERYTHING AVAILABLE
         # =====================================================
+
+        # Use the hub/location from the last valid
+        # matched category. For multiple categories,
+        # they must all resolve successfully.
+        final_record = matched_record
+
+        final_hub = str(
+            final_record.get("hub") or ""
+        ).strip()
+
+        final_location = str(
+            final_record.get("location") or ""
+        ).strip()
 
         return {
             "available": True,
@@ -1675,9 +1818,9 @@ class CustomerBookingService:
                 "in this area."
             ),
             "pincode": pincode,
-            "hub": hub_name,
-            "location": location_name,
-            "service_area": service_area,
+            "hub": final_hub,
+            "location": final_location,
+            "service_area": service_areas,
             "services": checked_services,
         }
 

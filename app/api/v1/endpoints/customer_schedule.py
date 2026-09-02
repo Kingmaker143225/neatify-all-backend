@@ -1,7 +1,7 @@
 # app/api/v1/endpoints/customer_schedule.py
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from typing import Any ,Optional
 from pydantic import BaseModel
 
 # ✅ Import Supabase client
@@ -17,7 +17,7 @@ router = APIRouter()
 
 class ScheduleConfigResponse(BaseModel):
     config_key: str
-    config_value: any
+    config_value: Any
 
 
 class BookingsDateResponse(BaseModel):

@@ -743,6 +743,10 @@ from app.api.v1.endpoints.customer_offers import router as customer_offers_route
 
 from app.api.v1.endpoints.customer_schedule import router as customer_schedule_router
 
+from app.api.v1.endpoints.customer_push_token import (
+    router as customer_push_token_router,
+)
+
 
 # =========================================================
 # SYSTEM
@@ -924,4 +928,10 @@ api_router.include_router(
     customer_schedule_router,
     prefix="/customer",
     tags=["Customer Schedule"],
+)
+
+api_router.include_router(
+    customer_push_token_router,
+    prefix="/customer",
+    tags=["Customer Push Token"],
 )

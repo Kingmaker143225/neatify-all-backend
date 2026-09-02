@@ -53,10 +53,12 @@ app/
         customer_cart.py
         customer_coupon.py
         customer_home.py
+        customer_offers.py
         customer_payment.py
         customer_policy.py
         customer_profile.py
         customer_referral.py
+        customer_schedule.py
         customer_services.py
         customer_wallet.py
         notification.py
@@ -945,6 +947,50 @@ async def get_customer_why_choose_us(
     return CustomerHomeService.get_why_choose_us()
 </file>
 
+<file path="app/api/v1/endpoints/customer_offers.py">
+# app/api/v1/endpoints/customer_offers.py
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+from typing import Optional
+from app.supabase.client import supabase
+
+router = APIRouter()
+
+class ActiveOfferResponse(BaseModel):
+    offer_percentage: Optional[int] = None
+    title: Optional[str] = None
+
+@router.get("/offers/active")
+async def get_active_offer(
+    service_title: str = Query(..., description="Title of the service to check for offers"),
+):
+    """
+    Get active offer percentage for a specific service by title.
+    """
+    try:
+        response = supabase.table("offers") \
+            .select("offer_percentage, title") \
+            .eq("title", service_title) \
+            .eq("is_offer_enabled", True) \
+            .maybe_single() \
+            .execute()
+        
+        if response.data:
+            return ActiveOfferResponse(
+                offer_percentage=response.data.get("offer_percentage"),
+                title=response.data.get("title")
+            )
+        
+        return ActiveOfferResponse(offer_percentage=None, title=None)
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch active offer: {str(e)}"
+        )
+</file>
+
 <file path="app/api/v1/endpoints/customer_payment.py">
 from fastapi import APIRouter, Depends
 
@@ -1062,109 +1108,6 @@ async def get_customer_policies(
     )
 </file>
 
-<file path="app/api/v1/endpoints/customer_profile.py">
-from fastapi import APIRouter, Depends
-
-from app.dependencies.customer_auth import (
-    get_current_customer,
-)
-
-from app.schemas.customer_profile import (
-    CustomerProfileResponse,
-    CustomerProfileUpdateRequest,
-)
-
-from app.services.customer_profile_service import (
-    CustomerProfileService,
-)
-
-
-from app.schemas.customer_profile import (
-    CustomerProfileResponse,
-    CustomerProfileUpdateRequest,
-    CustomerCompleteProfileRequest,
-)
-
-
-
-router = APIRouter()
-
-
-# =========================================================
-# GET CUSTOMER PROFILE
-# =========================================================
-
-@router.get(
-    "",
-    response_model=CustomerProfileResponse,
-)
-async def get_customer_profile(
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return (
-        CustomerProfileService
-        .get_profile(
-            customer=current_customer,
-        )
-    )
-
-
-# =========================================================
-# UPDATE CUSTOMER PROFILE
-# =========================================================
-
-@router.put(
-    "",
-    response_model=CustomerProfileResponse,
-)
-async def update_customer_profile(
-    request: CustomerProfileUpdateRequest,
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return (
-        CustomerProfileService
-        .update_profile(
-            customer=current_customer,
-            full_name=request.full_name,
-            phone=request.phone,
-            address=request.address,
-            pincode=request.pincode,
-        )
-    )
-
-
-
-# =========================================================
-# COMPLETE CUSTOMER PROFILE
-# =========================================================
-
-@router.post(
-    "/complete",
-    response_model=CustomerProfileResponse,
-)
-async def complete_customer_profile(
-    request: CustomerCompleteProfileRequest,
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return (
-        CustomerProfileService
-        .complete_profile(
-            customer=current_customer,
-            full_name=request.full_name,
-            email=request.email,
-            phone=request.phone,
-            password=request.password,
-            referral_code=request.referral_code,
-        )
-    )
-</file>
-
 <file path="app/api/v1/endpoints/customer_referral.py">
 from fastapi import APIRouter, Depends
 
@@ -1210,6 +1153,242 @@ async def validate_referral_code(
         "valid": True,
         "referrer_id": response.data["id"],
     }
+</file>
+
+<file path="app/api/v1/endpoints/customer_schedule.py">
+# app/api/v1/endpoints/customer_schedule.py
+
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+from pydantic import BaseModel
+
+# ✅ Import Supabase client
+from app.supabase.client import supabase
+
+# ✅ Create router
+router = APIRouter()
+
+
+# =========================================================
+# SCHEMAS
+# =========================================================
+
+class ScheduleConfigResponse(BaseModel):
+    config_key: str
+    config_value: any
+
+
+class BookingsDateResponse(BaseModel):
+    bookings: list
+
+
+class HubResolveRequest(BaseModel):
+    pincode: str
+    address: Optional[str] = ""
+
+
+class HubResolveResponse(BaseModel):
+    hub_name: Optional[str] = None
+    is_active: bool = True
+
+
+class StaffCountResponse(BaseModel):
+    count: int = 0
+
+
+# =========================================================
+# SCHEDULE CONFIG
+# =========================================================
+
+@router.get("/schedule-config")
+async def get_schedule_config():
+    """
+    Get schedule configuration (time slots, years, etc.)
+    """
+    try:
+        response = supabase.table("schedule_config").select("*").execute()
+        
+        if response.data:
+            # Convert to a more usable format
+            config_dict = {}
+            for item in response.data:
+                config_dict[item.get("config_key")] = item.get("config_value")
+            return config_dict
+        
+        # Return defaults if no config found
+        return {
+            "time_slots": [
+                "9:00 am", "9:30 am", "10:00 am", "10:30 am",
+                "11:00 am", "11:30 am", "12:00 pm",
+                "1:00 pm", "1:30 pm", "2:00 pm", "2:30 pm",
+                "3:00 pm", "3:30 pm", "4:00 pm", "4:30 pm"
+            ],
+            "years": [2026, 2027, 2028],
+            "date_time_slots": {},
+            "service_time_rules": []
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch schedule config: {str(e)}"
+        )
+
+
+# =========================================================
+# BOOKINGS BY DATE
+# =========================================================
+
+@router.get("/bookings/date", response_model=BookingsDateResponse)
+async def get_bookings_by_date(
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+):
+    """
+    Get active bookings for a specific date.
+    Excludes cancelled and failed payment bookings.
+    """
+    try:
+        # Get bookings for the date
+        response = supabase.table("bookings") \
+            .select("*") \
+            .eq("booking_date", date) \
+            .execute()
+        
+        # Filter active bookings
+        active_bookings = []
+        for booking in response.data or []:
+            work_status = str(booking.get("work_status") or "").upper()
+            payment_status = str(booking.get("payment_status") or "").upper()
+            
+            # Skip cancelled or failed payment bookings
+            if work_status == "CANCELLED" or payment_status == "FAILED":
+                continue
+            
+            active_bookings.append(booking)
+        
+        return BookingsDateResponse(bookings=active_bookings)
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch bookings: {str(e)}"
+        )
+
+
+# =========================================================
+# RESOLVE HUB FROM LOCATION
+# =========================================================
+
+@router.post("/hubs/resolve", response_model=HubResolveResponse)
+async def resolve_hub(
+    request: HubResolveRequest,
+):
+    """
+    Resolve hub from pincode and/or address.
+    """
+    try:
+        clean_pin = "".join(filter(str.isdigit, request.pincode))[:6]
+        address_upper = request.address.upper() if request.address else ""
+        
+        hub_name = None
+        is_active = True
+        
+        # 1. Match by pincode in hub_locations table
+        if len(clean_pin) == 6:
+            response = supabase.table("hub_locations") \
+                .select("hub_name, location_name, is_active") \
+                .eq("pincode", clean_pin) \
+                .execute()
+            
+            if response.data and len(response.data) > 0:
+                # Try to find specific location match
+                if address_upper:
+                    for loc in response.data:
+                        loc_name = (loc.get("location_name") or "").upper().strip()
+                        if loc_name and loc_name in address_upper:
+                            return HubResolveResponse(
+                                hub_name=loc.get("hub_name"),
+                                is_active=loc.get("is_active") != False
+                            )
+                
+                # Return first active match
+                active_match = next(
+                    (loc for loc in response.data if loc.get("is_active") != False),
+                    response.data[0]
+                )
+                return HubResolveResponse(
+                    hub_name=active_match.get("hub_name"),
+                    is_active=active_match.get("is_active") != False
+                )
+        
+        # 2. Fallback: Match by location_name in address
+        if address_upper:
+            response = supabase.table("hub_locations") \
+                .select("hub_name, location_name, is_active") \
+                .execute()
+            
+            if response.data:
+                for loc in response.data:
+                    loc_name = (loc.get("location_name") or "").upper().strip()
+                    if loc_name and loc_name in address_upper:
+                        return HubResolveResponse(
+                            hub_name=loc.get("hub_name"),
+                            is_active=loc.get("is_active") != False
+                        )
+        
+        # No hub found
+        return HubResolveResponse(hub_name=None, is_active=False)
+        
+    except Exception as e:
+        print(f"❌ Error resolving hub: {str(e)}")
+        return HubResolveResponse(hub_name=None, is_active=False)
+
+
+# =========================================================
+# GET HUB STAFF COUNT
+# =========================================================
+
+@router.get("/hubs/{hub_name}/staff-count", response_model=StaffCountResponse)
+async def get_hub_staff_count(
+    hub_name: str,
+    category: str = Query(..., description="Service category"),
+):
+    """
+    Get staff count for a specific hub and category.
+    """
+    try:
+        response = supabase.table("hub_category_counts") \
+            .select("count, category, hub") \
+            .eq("hub", hub_name) \
+            .ilike("category", f"%{category}%") \
+            .execute()
+        
+        if response.data and len(response.data) > 0:
+            # Find the best match
+            category_upper = category.upper().strip()
+            
+            for item in response.data:
+                cat = (item.get("category") or "").upper().strip()
+                # Check if category matches exactly or is contained
+                if cat == category_upper or category_upper in cat or cat in category_upper:
+                    try:
+                        count = int(item.get("count") or 0)
+                        return StaffCountResponse(count=count)
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Return first match
+            try:
+                count = int(response.data[0].get("count") or 0)
+                return StaffCountResponse(count=count)
+            except (ValueError, TypeError):
+                pass
+        
+        return StaffCountResponse(count=0)
+        
+    except Exception as e:
+        print(f"❌ Error fetching staff count: {str(e)}")
+        return StaffCountResponse(count=0)
 </file>
 
 <file path="app/api/v1/endpoints/customer_services.py">
@@ -3889,49 +4068,6 @@ async def get_current_user(
     return AuthService.get_current_user(
         token
     )
-</file>
-
-<file path="app/dependencies/customer_auth.py">
-from fastapi import Depends, HTTPException, status
-from fastapi.security import (
-    HTTPAuthorizationCredentials,
-    HTTPBearer,
-)
-
-from app.services.customer_auth_service import (
-    CustomerAuthService,
-)
-
-
-customer_security = HTTPBearer()
-
-
-async def get_current_customer(
-    credentials: HTTPAuthorizationCredentials = Depends(
-        customer_security
-    ),
-):
-    access_token = credentials.credentials
-
-    user = (
-        CustomerAuthService
-        .get_current_user(
-            access_token
-        )
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token.",
-        )
-
-    return {
-        "id": str(user.id),
-        "email": user.email or "",
-        "user": user,
-        "access_token": access_token,
-    }
 </file>
 
 <file path="app/dependencies/partner.py">
@@ -22563,6 +22699,109 @@ pip install fastapi uvicorn supabase python-dotenv pydantic-settings python-jose
 .venv\Scripts\Activate.ps1
 </file>
 
+<file path="app/api/v1/endpoints/customer_profile.py">
+from fastapi import APIRouter, Depends
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.schemas.customer_profile import (
+    CustomerProfileResponse,
+    CustomerProfileUpdateRequest,
+)
+
+from app.services.customer_profile_service import (
+    CustomerProfileService,
+)
+
+
+from app.schemas.customer_profile import (
+    CustomerProfileResponse,
+    CustomerProfileUpdateRequest,
+    CustomerCompleteProfileRequest,
+)
+
+
+
+router = APIRouter()
+
+
+# =========================================================
+# GET CUSTOMER PROFILE
+# =========================================================
+
+@router.get(
+    "",
+    response_model=CustomerProfileResponse,
+)
+async def get_customer_profile(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return (
+        CustomerProfileService
+        .get_profile(
+            customer=current_customer,
+        )
+    )
+
+
+# =========================================================
+# UPDATE CUSTOMER PROFILE
+# =========================================================
+
+@router.put(
+    "",
+    response_model=CustomerProfileResponse,
+)
+async def update_customer_profile(
+    request: CustomerProfileUpdateRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return (
+        CustomerProfileService
+        .update_profile(
+            customer=current_customer,
+            full_name=request.full_name,
+            phone=request.phone,
+            address=request.address,
+            pincode=request.pincode,
+        )
+    )
+
+
+
+# =========================================================
+# COMPLETE CUSTOMER PROFILE
+# =========================================================
+
+@router.post(
+    "/complete",
+    response_model=CustomerProfileResponse,
+)
+async def complete_customer_profile(
+    request: CustomerCompleteProfileRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return (
+        CustomerProfileService
+        .complete_profile(
+            customer=current_customer,
+            full_name=request.full_name,
+            email=request.email,
+            phone=request.phone,
+            password=request.password,
+            referral_code=request.referral_code,
+        )
+    )
+</file>
+
 <file path="app/config/settings.py">
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22591,6 +22830,109 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+</file>
+
+<file path="app/dependencies/customer_auth.py">
+# from fastapi import Depends, HTTPException, status
+# from fastapi.security import (
+#     HTTPAuthorizationCredentials,
+#     HTTPBearer,
+# )
+
+# from app.services.customer_auth_service import (
+#     CustomerAuthService,
+# )
+
+
+# customer_security = HTTPBearer()
+
+
+# async def get_current_customer(
+#     credentials: HTTPAuthorizationCredentials = Depends(
+#         customer_security
+#     ),
+# ):
+#     access_token = credentials.credentials
+
+#     user = (
+#         CustomerAuthService
+#         .get_current_user(
+#             access_token
+#         )
+#     )
+
+#     if not user:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Invalid authentication token.",
+#         )
+
+#     return {
+#         "id": str(user.id),
+#         "email": user.email or "",
+#         "user": user,
+#         "access_token": access_token,
+#     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
+
+from app.services.customer_auth_service import (
+    CustomerAuthService,
+)
+
+
+customer_security = HTTPBearer()
+
+
+async def get_current_customer(
+    credentials: HTTPAuthorizationCredentials = Depends(
+        customer_security
+    ),
+):
+    access_token = credentials.credentials
+
+    user = (
+        CustomerAuthService
+        .get_current_user(
+            access_token
+        )
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token.",
+        )
+
+    return {
+        "id": str(user.id),
+        "email": user.email or "",
+        "user": user,
+        "access_token": access_token,
+    }
 </file>
 
 <file path="app/repositories/customer_service_repository.py">
@@ -23134,47 +23476,6 @@ class CustomerServiceRepository:
         return response.data or []
 </file>
 
-<file path="app/schemas/customer_profile.py">
-from pydantic import BaseModel, Field
-
-
-class CustomerProfileResponse(BaseModel):
-    id: str
-    full_name: str | None = None
-    email: str
-    phone: str | None = None
-    address: str | None = None
-    pincode: str | None = None
-    referral_code : str | None  = None
-
-
-class CustomerProfileUpdateRequest(BaseModel):
-    full_name: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-    )
-    phone: str
-    address: str = ""
-    pincode: str = ""
-
-class CustomerCompleteProfileRequest(BaseModel):
-
-    full_name: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-    )
-
-    email: str
-
-    phone: str
-
-    password: str | None = None
-
-    referral_code: str | None = None
-</file>
-
 <file path="app/schemas/customer_service.py">
 from typing import Any
 
@@ -23433,840 +23734,6 @@ class CustomerHomeService:
         }
 </file>
 
-<file path="app/services/customer_profile_service.py">
-# from fastapi import HTTPException, status
-
-# from app.repositories.customer_repository import (
-#     CustomerRepository,
-# )
-# import random
-# import string
-
-# from app.supabase.client import supabase
-
-
-# class CustomerProfileService:
-
-#     # =========================================================
-#     # GET PROFILE
-#     # =========================================================
-
-#     @staticmethod
-#     def get_profile(
-#         customer,
-#     ):
-#         user = customer["user"]
-#         user_id = str(user.id)
-
-#         profile = (
-#             CustomerRepository
-#             .get_profile(user_id)
-#         )
-
-#         # -----------------------------------------------------
-#         # PROFILE DOES NOT EXIST
-#         # -----------------------------------------------------
-
-#         if not profile:
-#             return {
-#                 "id": user_id,
-#                 "full_name": None,
-#                 "email": user.email or "",
-#                 "phone": None,
-#                 "address": None,
-#                 "pincode": None,
-#                 "referral_code": None,
-#             }
-
-#         # -----------------------------------------------------
-#         # AUTH EMAIL IS THE SOURCE OF TRUTH
-#         # -----------------------------------------------------
-
-#         return {
-#             "id": user_id,
-#             "full_name": profile.get("full_name"),
-#             "email": (
-#                 user.email
-#                 or profile.get("email")
-#                 or ""
-#             ),
-#             "phone": profile.get("phone"),
-#             "address": profile.get("address"),
-#             "pincode": profile.get("pincode"),
-#             "referral_code": profile.get("referral_code"),
-#         }
-
-#     # =========================================================
-#     # UPDATE PROFILE
-#     # =========================================================
-
-#     @staticmethod
-#     def update_profile(
-#         customer,
-#         full_name: str,
-#         phone: str,
-#         address: str,
-#         pincode: str,
-        
-#     ):
-#         user = customer["user"]
-#         user_id = str(user.id)
-
-#         # -----------------------------------------------------
-#         # CLEAN PHONE
-#         # -----------------------------------------------------
-
-#         clean_phone = "".join(
-#             character
-#             for character in phone
-#             if character.isdigit()
-#         )
-
-#         if len(clean_phone) != 10:
-#             raise HTTPException(
-#                 status_code=status.HTTP_400_BAD_REQUEST,
-#                 detail=(
-#                     "Phone number must be exactly "
-#                     "10 digits."
-#                 ),
-#             )
-
-#         # -----------------------------------------------------
-#         # CLEAN DATA
-#         # -----------------------------------------------------
-
-#         clean_name = full_name.strip()
-#         clean_address = address.strip()
-#         clean_pincode = pincode.strip()
-
-#         if not clean_name:
-#             raise HTTPException(
-#                 status_code=status.HTTP_400_BAD_REQUEST,
-#                 detail="Full name is required.",
-#             )
-
-#         # -----------------------------------------------------
-#         # AUTH EMAIL
-#         # -----------------------------------------------------
-
-#         email = user.email or ""
-
-#         # -----------------------------------------------------
-#         # UPSERT PROFILE
-#         # -----------------------------------------------------
-
-#         CustomerRepository.upsert_profile(
-#             user_id=user_id,
-#             full_name=clean_name,
-#             phone=clean_phone,
-#             address=clean_address,
-#             pincode=clean_pincode,
-#             email=email,
-#         )
-
-#         # -----------------------------------------------------
-#         # RETURN UPDATED PROFILE
-#         # -----------------------------------------------------
-
-#         return (
-#             CustomerProfileService
-#             .get_profile(
-#                 customer=customer,
-#             )
-#         )
-
-#         # =========================================================
-#     # COMPLETE PROFILE
-#     # =========================================================
-
-#     @staticmethod
-#     def complete_profile(
-#         customer,
-#         full_name: str,
-#         email: str,
-#         phone: str,
-#         password: str | None = None,
-#         referral_code: str | None = None,
-#     ):
-#         user = customer["user"]
-#         user_id = str(user.id)
-
-#         # -----------------------------------------------------
-#         # CLEAN DATA
-#         # -----------------------------------------------------
-
-#         clean_name = full_name.strip()
-#         clean_email = email.strip()
-#         clean_phone = "".join(
-#             character
-#             for character in phone
-#             if character.isdigit()
-#         )[-10:]
-
-#         if not clean_name:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail="Full name is required.",
-#             )
-
-#         if len(clean_phone) != 10:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail="Phone number must be exactly 10 digits.",
-#             )
-
-#         if not clean_email:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail="Email is required.",
-#             )
-
-#         # -----------------------------------------------------
-#         # REFERRAL
-#         # -----------------------------------------------------
-
-#         referrer_id = None
-
-#         if referral_code and referral_code.strip():
-
-#             referral = (
-#                 supabase
-#                 .table("profile")
-#                 .select("id")
-#                 .eq(
-#                     "referral_code",
-#                     referral_code.strip().upper(),
-#                 )
-#                 .maybe_single()
-#                 .execute()
-#             )
-
-#             if not referral.data:
-#                 raise HTTPException(
-#                     status_code=400,
-#                     detail="Invalid referral code.",
-#                 )
-
-#             referrer_id = referral.data["id"]
-
-#             # Prevent self-referral
-#             if str(referrer_id) == user_id:
-#                 raise HTTPException(
-#                     status_code=400,
-#                     detail="You cannot use your own referral code.",
-#                 )
-
-#         # -----------------------------------------------------
-#         # GENERATE THIS CUSTOMER'S OWN REFERRAL CODE
-#         # -----------------------------------------------------
-
-#         existing_profile = (
-#             CustomerRepository
-#             .get_profile(user_id)
-#         )
-
-#         my_referral_code = (
-#             existing_profile.get("referral_code")
-#             if existing_profile
-#             else None
-#         )
-
-#         if not my_referral_code:
-#             prefix = (
-#                 "".join(
-#                     character
-#                     for character in clean_name.upper()
-#                     if character.isalnum()
-#                 )[:3]
-#                 or "USR"
-#             )
-
-#             suffix = "".join(
-#                 random.choices(
-#                     string.ascii_uppercase
-#                     + string.digits,
-#                     k=6,
-#                 )
-#             )
-
-#             my_referral_code = (
-#                 f"NEAT-{prefix}{suffix}"
-#             )
-
-#         # -----------------------------------------------------
-#         # UPDATE SUPABASE AUTH USER
-#         # -----------------------------------------------------
-
-#         auth_payload = {
-#             "user_metadata": {
-#                 "full_name": clean_name,
-#                 "phone_number": f"+91{clean_phone}",
-#             }
-#         }
-
-#         if password:
-#             auth_payload["password"] = password
-
-#         if clean_email != (user.email or ""):
-#             auth_payload["email"] = clean_email
-
-#         try:
-#             supabase.auth.admin.update_user_by_id(
-#                 user_id,
-#                 auth_payload,
-#             )
-#         except Exception as exc:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=str(exc),
-#             ) from exc
-
-#         # -----------------------------------------------------
-#         # PROFILE
-#         # -----------------------------------------------------
-
-#         CustomerRepository.upsert_profile(
-#             user_id=user_id,
-#             full_name=clean_name,
-#             phone=clean_phone,
-#             address=(
-#                 existing_profile.get("address")
-#                 if existing_profile
-#                 else ""
-#             ),
-#             pincode=(
-#                 existing_profile.get("pincode")
-#                 if existing_profile
-#                 else ""
-#             ),
-#             email=clean_email,
-#             referral_code=my_referral_code,
-#             referred_by_id=referrer_id,
-#         )
-
-#         # -----------------------------------------------------
-#         # SIGNUP TABLE
-#         # -----------------------------------------------------
-
-#         (
-#             supabase
-#             .table("signup")
-#             .upsert(
-#                 {
-#                     "id": user_id,
-#                     "full_name": clean_name,
-#                     "email": clean_email,
-#                     "phone": clean_phone,
-#                 }
-#             )
-#             .execute()
-#         )
-
-#         # -----------------------------------------------------
-#         # WALLET
-#         # -----------------------------------------------------
-
-#         (
-#             supabase
-#             .table("wallet")
-#             .upsert(
-#                 {
-#                     "user_id": user_id,
-#                     "balance": 0,
-#                 }
-#             )
-#             .execute()
-#         )
-
-#         # -----------------------------------------------------
-#         # REFERRAL TRACKING + WELCOME COUPON
-#         # -----------------------------------------------------
-
-#         welcome_coupon_code = None
-
-#         if referrer_id:
-
-#             (
-#                 supabase
-#                 .table("referrals")
-#                 .insert(
-#                     {
-#                         "referrer_id": referrer_id,
-#                         "referred_user_id": user_id,
-#                         "status": "pending",
-#                     }
-#                 )
-#                 .execute()
-#             )
-
-#             welcome_coupon_code = (
-#                 "WELCOME50_"
-#                 + "".join(
-#                     random.choices(
-#                         string.ascii_uppercase
-#                         + string.digits,
-#                         k=4,
-#                     )
-#                 )
-#             )
-
-#             (
-#                 supabase
-#                 .table("coupons")
-#                 .insert(
-#                     {
-#                         "coupon_code": welcome_coupon_code,
-#                         "discount_amount": 50,
-#                         "is_used": False,
-#                         "phone_number": clean_phone,
-#                     }
-#                 )
-#                 .execute()
-#             )
-
-#             # -------------------------------------------------
-#             # AUTH METADATA
-#             # -------------------------------------------------
-
-#             try:
-#                 supabase.auth.admin.update_user_by_id(
-#                     user_id,
-#                     {
-#                         "user_metadata": {
-#                             "show_welcome_reward": True,
-#                             "welcome_coupon_code": (
-#                                 welcome_coupon_code
-#                             ),
-#                         }
-#                     },
-#                 )
-#             except Exception:
-#                 pass
-
-#         # -----------------------------------------------------
-#         # RETURN COMPLETE PROFILE
-#         # -----------------------------------------------------
-
-#         return CustomerProfileService.get_profile(
-#             customer=customer,
-#         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from fastapi import HTTPException, status
-
-from app.repositories.customer_repository import (
-    CustomerRepository,
-)
-
-import random
-import string
-
-
-class CustomerProfileService:
-
-    # =========================================================
-    # GET PROFILE
-    # =========================================================
-
-    @staticmethod
-    def get_profile(
-        customer,
-    ):
-        user = customer["user"]
-        user_id = str(user.id)
-
-        profile = (
-            CustomerRepository
-            .get_profile(user_id)
-        )
-
-        # -----------------------------------------------------
-        # PROFILE DOES NOT EXIST
-        # -----------------------------------------------------
-
-        if not profile:
-            return {
-                "id": user_id,
-                "full_name": None,
-                "email": user.email or "",
-                "phone": None,
-                "address": None,
-                "pincode": None,
-                "referral_code": None,
-            }
-
-        # -----------------------------------------------------
-        # AUTH EMAIL IS THE SOURCE OF TRUTH
-        # -----------------------------------------------------
-
-        return {
-            "id": user_id,
-            "full_name": profile.get("full_name"),
-            "email": (
-                user.email
-                or profile.get("email")
-                or ""
-            ),
-            "phone": profile.get("phone"),
-            "address": profile.get("address"),
-            "pincode": profile.get("pincode"),
-            "referral_code": profile.get("referral_code"),
-        }
-
-    # =========================================================
-    # UPDATE PROFILE
-    # =========================================================
-
-    @staticmethod
-    def update_profile(
-        customer,
-        full_name: str,
-        phone: str,
-        address: str,
-        pincode: str,
-    ):
-        user = customer["user"]
-        user_id = str(user.id)
-
-        # -----------------------------------------------------
-        # CLEAN PHONE
-        # -----------------------------------------------------
-
-        clean_phone = "".join(
-            character
-            for character in phone
-            if character.isdigit()
-        )
-
-        if len(clean_phone) != 10:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Phone number must be exactly "
-                    "10 digits."
-                ),
-            )
-
-        # -----------------------------------------------------
-        # CLEAN DATA
-        # -----------------------------------------------------
-
-        clean_name = full_name.strip()
-        clean_address = address.strip()
-        clean_pincode = pincode.strip()
-
-        if not clean_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Full name is required.",
-            )
-
-        # -----------------------------------------------------
-        # AUTH EMAIL
-        # -----------------------------------------------------
-
-        email = user.email or ""
-
-        # -----------------------------------------------------
-        # UPSERT PROFILE
-        # -----------------------------------------------------
-
-        CustomerRepository.upsert_profile(
-            user_id=user_id,
-            full_name=clean_name,
-            phone=clean_phone,
-            address=clean_address,
-            pincode=clean_pincode,
-            email=email,
-        )
-
-        # -----------------------------------------------------
-        # RETURN UPDATED PROFILE
-        # -----------------------------------------------------
-
-        return (
-            CustomerProfileService
-            .get_profile(
-                customer=customer,
-            )
-        )
-
-    # =========================================================
-    # COMPLETE PROFILE
-    # =========================================================
-
-    @staticmethod
-    def complete_profile(
-        customer,
-        full_name: str,
-        email: str,
-        phone: str,
-        password: str | None = None,
-        referral_code: str | None = None,
-    ):
-        user = customer["user"]
-        user_id = str(user.id)
-
-        # -----------------------------------------------------
-        # CLEAN DATA
-        # -----------------------------------------------------
-
-        clean_name = full_name.strip()
-        clean_email = email.strip()
-
-        clean_phone = "".join(
-            character
-            for character in phone
-            if character.isdigit()
-        )[-10:]
-
-        if not clean_name:
-            raise HTTPException(
-                status_code=400,
-                detail="Full name is required.",
-            )
-
-        if len(clean_phone) != 10:
-            raise HTTPException(
-                status_code=400,
-                detail="Phone number must be exactly 10 digits.",
-            )
-
-        if not clean_email:
-            raise HTTPException(
-                status_code=400,
-                detail="Email is required.",
-            )
-
-        # -----------------------------------------------------
-        # REFERRAL
-        # -----------------------------------------------------
-
-        referrer_id = None
-
-        if referral_code and referral_code.strip():
-
-            referral = (
-                CustomerRepository
-                .get_referrer_by_code(
-                    referral_code.strip().upper()
-                )
-            )
-
-            if not referral:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid referral code.",
-                )
-
-            referrer_id = referral["id"]
-
-            # Prevent self-referral
-            if str(referrer_id) == user_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "You cannot use your own referral code."
-                    ),
-                )
-
-        # -----------------------------------------------------
-        # GET EXISTING PROFILE
-        # -----------------------------------------------------
-
-        existing_profile = (
-            CustomerRepository
-            .get_profile(user_id)
-        )
-
-        # -----------------------------------------------------
-        # GENERATE THIS CUSTOMER'S OWN REFERRAL CODE
-        # -----------------------------------------------------
-
-        my_referral_code = (
-            existing_profile.get("referral_code")
-            if existing_profile
-            else None
-        )
-
-        if not my_referral_code:
-
-            prefix = (
-                "".join(
-                    character
-                    for character in clean_name.upper()
-                    if character.isalnum()
-                )[:3]
-                or "USR"
-            )
-
-            suffix = "".join(
-                random.choices(
-                    string.ascii_uppercase
-                    + string.digits,
-                    k=6,
-                )
-            )
-
-            my_referral_code = (
-                f"NEAT-{prefix}{suffix}"
-            )
-
-        # -----------------------------------------------------
-        # UPDATE AUTH USER
-        # -----------------------------------------------------
-
-        auth_payload = {
-            "user_metadata": {
-                "full_name": clean_name,
-                "phone_number": f"+91{clean_phone}",
-            }
-        }
-
-        if password:
-            auth_payload["password"] = password
-
-        if clean_email != (user.email or ""):
-            auth_payload["email"] = clean_email
-
-        try:
-            CustomerRepository.update_auth_user(
-                user_id=user_id,
-                auth_payload=auth_payload,
-            )
-
-        except Exception as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=str(exc),
-            ) from exc
-
-        # -----------------------------------------------------
-        # PROFILE
-        # -----------------------------------------------------
-
-        CustomerRepository.upsert_profile(
-            user_id=user_id,
-            full_name=clean_name,
-            phone=clean_phone,
-            address=(
-                existing_profile.get("address")
-                if existing_profile
-                else ""
-            ),
-            pincode=(
-                existing_profile.get("pincode")
-                if existing_profile
-                else ""
-            ),
-            email=clean_email,
-            referral_code=my_referral_code,
-            referred_by_id=referrer_id,
-        )
-
-        # -----------------------------------------------------
-        # SIGNUP TABLE
-        # -----------------------------------------------------
-
-        CustomerRepository.upsert_signup(
-            user_id=user_id,
-            full_name=clean_name,
-            email=clean_email,
-            phone=clean_phone,
-        )
-
-        # -----------------------------------------------------
-        # WALLET
-        # -----------------------------------------------------
-
-        CustomerRepository.upsert_wallet(
-            user_id=user_id,
-        )
-
-        # -----------------------------------------------------
-        # REFERRAL TRACKING + WELCOME COUPON
-        # -----------------------------------------------------
-
-        welcome_coupon_code = None
-
-        if referrer_id:
-
-            # -------------------------------------------------
-            # CREATE REFERRAL
-            # -------------------------------------------------
-
-            CustomerRepository.create_referral(
-                referrer_id=referrer_id,
-                referred_user_id=user_id,
-            )
-
-            # -------------------------------------------------
-            # GENERATE WELCOME COUPON
-            # -------------------------------------------------
-
-            welcome_coupon_code = (
-                "WELCOME50_"
-                + "".join(
-                    random.choices(
-                        string.ascii_uppercase
-                        + string.digits,
-                        k=4,
-                    )
-                )
-            )
-
-            # -------------------------------------------------
-            # CREATE WELCOME COUPON
-            # -------------------------------------------------
-
-            CustomerRepository.create_welcome_coupon(
-                coupon_code=welcome_coupon_code,
-                phone=clean_phone,
-            )
-
-            # -------------------------------------------------
-            # AUTH METADATA
-            # -------------------------------------------------
-
-            CustomerRepository.update_welcome_reward(
-                user_id=user_id,
-                coupon_code=welcome_coupon_code,
-            )
-
-        # -----------------------------------------------------
-        # RETURN COMPLETE PROFILE
-        # -----------------------------------------------------
-
-        return (
-            CustomerProfileService
-            .get_profile(
-                customer=customer,
-            )
-        )
-</file>
-
 <file path="requirements.txt">
 annotated-doc==0.0.4
 annotated-types==0.7.0
@@ -24349,478 +23816,6 @@ websockets==15.0.1
 wheel==0.47.0
 yarl==1.23.0
 zstandard==0.25.0
-</file>
-
-<file path="app/api/v1/endpoints/customer_auth.py">
-# from fastapi import APIRouter, Depends
-
-# from app.dependencies.customer_auth import (
-#     get_current_customer,
-# )
-
-# from app.schemas.customer_auth import (
-#     CustomerLoginRequest,
-#     CustomerLoginResponse,
-#     CustomerMeResponse,
-#     CustomerLogoutResponse,
-# )
-
-# from app.services.customer_auth_service import (
-#     CustomerAuthService,
-# )
-
-
-# router = APIRouter()
-
-
-# # =========================================================
-# # CUSTOMER LOGIN
-# # =========================================================
-
-# @router.post(
-#     "/login",
-#     response_model=CustomerLoginResponse,
-# )
-# async def customer_login(
-#     request: CustomerLoginRequest,
-# ):
-#     return CustomerAuthService.login(
-#         email=request.email,
-#         password=request.password,
-#     )
-
-
-# # =========================================================
-# # CUSTOMER ME
-# # =========================================================
-
-# @router.get(
-#     "/me",
-#     response_model=CustomerMeResponse,
-# )
-# async def customer_me(
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-#     return CustomerAuthService.get_me(
-#         access_token=current_customer[
-#             "access_token"
-#         ],
-#     )
-
-
-# # =========================================================
-# # CUSTOMER LOGOUT
-# # =========================================================
-
-# @router.post(
-#     "/logout",
-#     response_model=CustomerLogoutResponse,
-# )
-# async def customer_logout(
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-#     return CustomerAuthService.logout(
-#         access_token=current_customer[
-#             "access_token"
-#         ],
-#     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# from fastapi import APIRouter, Depends
-
-# from app.dependencies.customer_auth import (
-#     get_current_customer,
-# )
-
-# from app.schemas.customer_auth import (
-#     CustomerLoginRequest,
-#     CustomerLoginResponse,
-#     CustomerSignupRequest,
-#     CustomerSignupResponse,
-#     CustomerMeResponse,
-#     CustomerProfileCompletenessResponse,
-#     CustomerSendOtpRequest,
-#     CustomerSendOtpResponse,
-#     CustomerVerifyOtpRequest,
-#     CustomerVerifyOtpResponse,
-#     CustomerLogoutResponse,
-# )
-
-# from app.services.customer_auth_service import (
-#     CustomerAuthService,
-# )
-
-
-# router = APIRouter()
-
-
-# # =========================================================
-# # CUSTOMER LOGIN
-# # =========================================================
-
-# @router.post(
-#     "/login",
-#     response_model=CustomerLoginResponse,
-# )
-# async def customer_login(
-#     request: CustomerLoginRequest,
-# ):
-#     return CustomerAuthService.login(
-#         email=request.email,
-#         password=request.password,
-#     )
-
-
-# # =========================================================
-# # CUSTOMER SIGNUP
-# # =========================================================
-
-# @router.post(
-#     "/signup",
-#     response_model=CustomerSignupResponse,
-# )
-# async def customer_signup(
-#     request: CustomerSignupRequest,
-# ):
-#     return CustomerAuthService.signup(
-#         full_name=request.full_name,
-#         email=request.email,
-#         phone=request.phone,
-#         password=request.password,
-#     )
-
-
-# # =========================================================
-# # CURRENT CUSTOMER
-# # =========================================================
-
-# @router.get(
-#     "/me",
-#     response_model=CustomerMeResponse,
-# )
-# async def customer_me(
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-#     return CustomerAuthService.get_me(
-#         access_token=current_customer[
-#             "access_token"
-#         ],
-#     )
-
-
-# # =========================================================
-# # CUSTOMER PROFILE COMPLETENESS
-# # =========================================================
-
-# @router.get(
-#     "/profile-completeness",
-#     response_model=CustomerProfileCompletenessResponse,
-# )
-# async def customer_profile_completeness(
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-#     return (
-#         CustomerAuthService
-#         .get_profile_completeness(
-#             access_token=current_customer[
-#                 "access_token"
-#             ],
-#         )
-#     )
-
-
-# # =========================================================
-# # SEND CUSTOMER OTP
-# # =========================================================
-
-# @router.post(
-#     "/send-otp",
-#     response_model=CustomerSendOtpResponse,
-# )
-# async def customer_send_otp(
-#     request: CustomerSendOtpRequest,
-# ):
-#     return CustomerAuthService.send_otp(
-#         phone=request.phone,
-#     )
-
-
-# # =========================================================
-# # VERIFY CUSTOMER OTP
-# # =========================================================
-
-# @router.post(
-#     "/verify-otp",
-#     response_model=CustomerVerifyOtpResponse,
-# )
-# async def customer_verify_otp(
-#     request: CustomerVerifyOtpRequest,
-# ):
-#     return CustomerAuthService.verify_otp(
-#         phone=request.phone,
-#         otp=request.otp,
-#     )
-
-
-# # =========================================================
-# # CUSTOMER LOGOUT
-# # =========================================================
-
-# @router.post(
-#     "/logout",
-#     response_model=CustomerLogoutResponse,
-# )
-# async def customer_logout(
-#     current_customer=Depends(
-#         get_current_customer
-#     ),
-# ):
-#     return CustomerAuthService.logout(
-#         access_token=current_customer[
-#             "access_token"
-#         ],
-#     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from fastapi import APIRouter, Depends
-
-from app.dependencies.customer_auth import (
-    get_current_customer,
-)
-
-from app.schemas.customer_auth import (
-    CustomerLoginRequest,
-    CustomerLoginResponse,
-    CustomerSignupRequest,
-    CustomerSignupResponse,
-    CustomerMeResponse,
-    CustomerProfileCompletenessResponse,
-    CustomerSendOtpRequest,
-    CustomerSendOtpResponse,
-    CustomerVerifyOtpRequest,
-    CustomerVerifyOtpResponse,
-    CustomerLogoutResponse,
-    CustomerRewardsResponse,
-    CustomerRewardsUpdateRequest,
-)
-
-from app.services.customer_auth_service import (
-    CustomerAuthService,
-)
-
-
-router = APIRouter()
-
-
-# =========================================================
-# CUSTOMER LOGIN
-# =========================================================
-
-@router.post(
-    "/login",
-    response_model=CustomerLoginResponse,
-)
-async def customer_login(
-    request: CustomerLoginRequest,
-):
-    return CustomerAuthService.login(
-        email=request.email,
-        password=request.password,
-    )
-
-
-# =========================================================
-# CUSTOMER SIGNUP
-# =========================================================
-
-@router.post(
-    "/signup",
-    response_model=CustomerSignupResponse,
-)
-async def customer_signup(
-    request: CustomerSignupRequest,
-):
-    return CustomerAuthService.signup(
-        full_name=request.full_name,
-        email=request.email,
-        phone=request.phone,
-        password=request.password,
-    )
-
-
-# =========================================================
-# CURRENT CUSTOMER
-# =========================================================
-
-@router.get(
-    "/me",
-    response_model=CustomerMeResponse,
-)
-async def customer_me(
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return CustomerAuthService.get_me(
-        access_token=current_customer[
-            "access_token"
-        ],
-    )
-
-
-# =========================================================
-# CUSTOMER PROFILE COMPLETENESS
-# =========================================================
-
-@router.get(
-    "/profile-completeness",
-    response_model=CustomerProfileCompletenessResponse,
-)
-async def customer_profile_completeness(
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return (
-        CustomerAuthService
-        .get_profile_completeness(
-            access_token=current_customer[
-                "access_token"
-            ],
-        )
-    )
-
-
-# =========================================================
-# CUSTOMER REWARDS / OFFERS
-# =========================================================
-
-@router.get(
-    "/rewards",
-    response_model=CustomerRewardsResponse,
-)
-async def customer_rewards(
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return CustomerAuthService.get_rewards(
-        access_token=current_customer[
-            "access_token"
-        ],
-    )
-
-
-@router.patch(
-    "/rewards",
-    response_model=CustomerRewardsResponse,
-)
-async def update_customer_rewards(
-    request: CustomerRewardsUpdateRequest,
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return CustomerAuthService.update_rewards(
-        access_token=current_customer[
-            "access_token"
-        ],
-        show_welcome_reward=request.show_welcome_reward,
-        show_signup_offer_popup=request.show_signup_offer_popup,
-    )
-
-
-# =========================================================
-# SEND CUSTOMER OTP
-# =========================================================
-
-@router.post(
-    "/send-otp",
-    response_model=CustomerSendOtpResponse,
-)
-async def customer_send_otp(
-    request: CustomerSendOtpRequest,
-):
-    return CustomerAuthService.send_otp(
-        phone=request.phone,
-    )
-
-
-# =========================================================
-# VERIFY CUSTOMER OTP
-# =========================================================
-
-@router.post(
-    "/verify-otp",
-    response_model=CustomerVerifyOtpResponse,
-)
-async def customer_verify_otp(
-    request: CustomerVerifyOtpRequest,
-):
-    return CustomerAuthService.verify_otp(
-        phone=request.phone,
-        otp=request.otp,
-    )
-
-
-# =========================================================
-# CUSTOMER LOGOUT
-# =========================================================
-
-@router.post(
-    "/logout",
-    response_model=CustomerLogoutResponse,
-)
-async def customer_logout(
-    current_customer=Depends(
-        get_current_customer
-    ),
-):
-    return CustomerAuthService.logout(
-        access_token=current_customer[
-            "access_token"
-        ],
-    )
 </file>
 
 <file path="app/repositories/customer_booking_repository.py">
@@ -26411,313 +25406,6 @@ class CustomerBookingRepository:
         )
 </file>
 
-<file path="app/schemas/customer_auth.py">
-# from pydantic import BaseModel, EmailStr
-
-
-# class CustomerLoginRequest(BaseModel):
-#     email: EmailStr
-#     password: str
-
-
-# class CustomerLoginResponse(BaseModel):
-#     access_token: str
-#     refresh_token: str
-#     token_type: str = "bearer"
-#     user_id: str
-#     email: str
-#     profile_exists: bool
-
-
-# class CustomerProfileSummary(BaseModel):
-#     id: str
-#     full_name: str | None = None
-#     email: str | None = None
-#     phone: str | None = None
-
-
-# class CustomerMeResponse(BaseModel):
-#     id: str
-#     email: str
-#     profile_exists: bool
-#     profile: CustomerProfileSummary | None = None
-
-
-# class CustomerLogoutResponse(BaseModel):
-#     success: bool
-#     message: str
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# from pydantic import BaseModel, EmailStr, Field
-
-
-# class CustomerLoginRequest(BaseModel):
-#     email: EmailStr
-#     password: str
-
-
-# class CustomerLoginResponse(BaseModel):
-#     access_token: str
-#     refresh_token: str
-#     token_type: str = "bearer"
-#     user_id: str
-#     email: str
-#     profile_exists: bool
-
-
-# class CustomerSignupRequest(BaseModel):
-#     full_name: str = Field(
-#         ...,
-#         min_length=1,
-#         max_length=100,
-#     )
-#     email: EmailStr
-#     phone: str
-#     password: str = Field(
-#         ...,
-#         min_length=6,
-#     )
-
-
-# class CustomerSignupResponse(BaseModel):
-#     user_id: str
-#     email: str
-#     profile_created: bool
-#     email_confirmation_required: bool
-#     message: str
-
-
-# class CustomerProfileSummary(BaseModel):
-#     id: str
-#     full_name: str | None = None
-#     email: str | None = None
-#     phone: str | None = None
-
-
-# class CustomerMeResponse(BaseModel):
-#     id: str
-#     email: str
-#     email_confirmed: bool
-#     profile_exists: bool
-#     profile_complete: bool
-#     profile: CustomerProfileSummary | None = None
-
-
-# class CustomerProfileCompletenessResponse(BaseModel):
-#     profile_exists: bool
-#     profile_complete: bool
-#     email_confirmed: bool
-#     missing_fields: list[str]
-
-
-# class CustomerSendOtpRequest(BaseModel):
-#     phone: str
-
-
-# class CustomerSendOtpResponse(BaseModel):
-#     success: bool
-#     message: str
-
-
-# class CustomerVerifyOtpRequest(BaseModel):
-#     phone: str
-#     otp: str
-
-
-# class CustomerVerifyOtpResponse(BaseModel):
-#     success: bool
-#     is_new_user: bool
-#     email: str | None = None
-#     temp_password: str | None = None
-#     message: str
-
-
-# class CustomerLogoutResponse(BaseModel):
-#     success: bool
-#     message: str
-
-
-
-
-
-
-
-
-
-
-
-
-
-from pydantic import BaseModel, EmailStr, Field
-
-
-class CustomerLoginRequest(BaseModel):
-
-    email: EmailStr
-
-    password: str
-
-
-class CustomerLoginResponse(BaseModel):
-
-    access_token: str
-
-    refresh_token: str
-
-    token_type: str = "bearer"
-
-    user_id: str
-
-    email: str
-
-    profile_exists: bool
-
-
-class CustomerSignupRequest(BaseModel):
-
-    full_name: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-    )
-
-    email: EmailStr
-
-    phone: str
-
-    password: str = Field(
-        ...,
-        min_length=6,
-    )
-
-
-class CustomerSignupResponse(BaseModel):
-
-    user_id: str
-
-    email: str
-
-    profile_created: bool
-
-    email_confirmation_required: bool
-
-    message: str
-
-
-class CustomerProfileSummary(BaseModel):
-
-    id: str
-
-    full_name: str | None = None
-
-    email: str | None = None
-
-    phone: str | None = None
-
-
-class CustomerMeResponse(BaseModel):
-
-    id: str
-
-    email: str
-
-    email_confirmed: bool
-
-    profile_exists: bool
-
-    profile_complete: bool
-
-    profile: CustomerProfileSummary | None = None
-
-
-class CustomerProfileCompletenessResponse(BaseModel):
-
-    profile_exists: bool
-
-    profile_complete: bool
-
-    email_confirmed: bool
-
-    missing_fields: list[str]
-
-
-class CustomerSendOtpRequest(BaseModel):
-
-    phone: str
-
-
-class CustomerSendOtpResponse(BaseModel):
-
-    success: bool
-
-    message: str
-
-
-class CustomerVerifyOtpRequest(BaseModel):
-
-    phone: str
-
-    otp: str
-
-
-class CustomerVerifyOtpResponse(BaseModel):
-
-    success: bool
-
-    is_new_user: bool
-
-    email: str | None = None
-
-    temp_password: str | None = None
-
-    message: str
-
-
-class CustomerLogoutResponse(BaseModel):
-
-    success: bool
-
-    message: str
-
-
-# =========================================================
-# CUSTOMER REWARDS / OFFERS
-# =========================================================
-
-class CustomerRewardsResponse(BaseModel):
-
-    show_welcome_reward: bool = False
-
-    welcome_coupon_code: str | None = None
-
-    show_signup_offer_popup: bool = False
-
-    signup_service_title: str | None = None
-
-    signup_service_id: str | None = None
-
-
-class CustomerRewardsUpdateRequest(BaseModel):
-
-    show_welcome_reward: bool | None = None
-
-    show_signup_offer_popup: bool | None = None
-</file>
-
 <file path="app/schemas/customer_booking.py">
 # from datetime import date
 # from typing import Any
@@ -26942,6 +25630,1343 @@ class CustomerBookingResponse(BaseModel):
     total_amount: float
 </file>
 
+<file path="app/schemas/customer_profile.py">
+from pydantic import BaseModel, Field
+
+
+class CustomerProfileResponse(BaseModel):
+    id: str
+    full_name: str | None = None
+    email: str
+    phone: str | None = None
+    address: str | None = None
+    pincode: str | None = None
+    referral_code : str | None  = None
+
+
+class CustomerProfileUpdateRequest(BaseModel):
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+    phone: str
+    address: str = ""
+    pincode: str = ""
+
+class CustomerCompleteProfileRequest(BaseModel):
+
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    email: str
+
+    phone: str
+
+    password: str | None = None
+
+    referral_code: str | None = None
+</file>
+
+<file path="app/services/customer_profile_service.py">
+# from fastapi import HTTPException, status
+
+# from app.repositories.customer_repository import (
+#     CustomerRepository,
+# )
+# import random
+# import string
+
+# from app.supabase.client import supabase
+
+
+# class CustomerProfileService:
+
+#     # =========================================================
+#     # GET PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def get_profile(
+#         customer,
+#     ):
+#         user = customer["user"]
+#         user_id = str(user.id)
+
+#         profile = (
+#             CustomerRepository
+#             .get_profile(user_id)
+#         )
+
+#         # -----------------------------------------------------
+#         # PROFILE DOES NOT EXIST
+#         # -----------------------------------------------------
+
+#         if not profile:
+#             return {
+#                 "id": user_id,
+#                 "full_name": None,
+#                 "email": user.email or "",
+#                 "phone": None,
+#                 "address": None,
+#                 "pincode": None,
+#                 "referral_code": None,
+#             }
+
+#         # -----------------------------------------------------
+#         # AUTH EMAIL IS THE SOURCE OF TRUTH
+#         # -----------------------------------------------------
+
+#         return {
+#             "id": user_id,
+#             "full_name": profile.get("full_name"),
+#             "email": (
+#                 user.email
+#                 or profile.get("email")
+#                 or ""
+#             ),
+#             "phone": profile.get("phone"),
+#             "address": profile.get("address"),
+#             "pincode": profile.get("pincode"),
+#             "referral_code": profile.get("referral_code"),
+#         }
+
+#     # =========================================================
+#     # UPDATE PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def update_profile(
+#         customer,
+#         full_name: str,
+#         phone: str,
+#         address: str,
+#         pincode: str,
+        
+#     ):
+#         user = customer["user"]
+#         user_id = str(user.id)
+
+#         # -----------------------------------------------------
+#         # CLEAN PHONE
+#         # -----------------------------------------------------
+
+#         clean_phone = "".join(
+#             character
+#             for character in phone
+#             if character.isdigit()
+#         )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail=(
+#                     "Phone number must be exactly "
+#                     "10 digits."
+#                 ),
+#             )
+
+#         # -----------------------------------------------------
+#         # CLEAN DATA
+#         # -----------------------------------------------------
+
+#         clean_name = full_name.strip()
+#         clean_address = address.strip()
+#         clean_pincode = pincode.strip()
+
+#         if not clean_name:
+#             raise HTTPException(
+#                 status_code=status.HTTP_400_BAD_REQUEST,
+#                 detail="Full name is required.",
+#             )
+
+#         # -----------------------------------------------------
+#         # AUTH EMAIL
+#         # -----------------------------------------------------
+
+#         email = user.email or ""
+
+#         # -----------------------------------------------------
+#         # UPSERT PROFILE
+#         # -----------------------------------------------------
+
+#         CustomerRepository.upsert_profile(
+#             user_id=user_id,
+#             full_name=clean_name,
+#             phone=clean_phone,
+#             address=clean_address,
+#             pincode=clean_pincode,
+#             email=email,
+#         )
+
+#         # -----------------------------------------------------
+#         # RETURN UPDATED PROFILE
+#         # -----------------------------------------------------
+
+#         return (
+#             CustomerProfileService
+#             .get_profile(
+#                 customer=customer,
+#             )
+#         )
+
+#         # =========================================================
+#     # COMPLETE PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def complete_profile(
+#         customer,
+#         full_name: str,
+#         email: str,
+#         phone: str,
+#         password: str | None = None,
+#         referral_code: str | None = None,
+#     ):
+#         user = customer["user"]
+#         user_id = str(user.id)
+
+#         # -----------------------------------------------------
+#         # CLEAN DATA
+#         # -----------------------------------------------------
+
+#         clean_name = full_name.strip()
+#         clean_email = email.strip()
+#         clean_phone = "".join(
+#             character
+#             for character in phone
+#             if character.isdigit()
+#         )[-10:]
+
+#         if not clean_name:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Full name is required.",
+#             )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Phone number must be exactly 10 digits.",
+#             )
+
+#         if not clean_email:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Email is required.",
+#             )
+
+#         # -----------------------------------------------------
+#         # REFERRAL
+#         # -----------------------------------------------------
+
+#         referrer_id = None
+
+#         if referral_code and referral_code.strip():
+
+#             referral = (
+#                 supabase
+#                 .table("profile")
+#                 .select("id")
+#                 .eq(
+#                     "referral_code",
+#                     referral_code.strip().upper(),
+#                 )
+#                 .maybe_single()
+#                 .execute()
+#             )
+
+#             if not referral.data:
+#                 raise HTTPException(
+#                     status_code=400,
+#                     detail="Invalid referral code.",
+#                 )
+
+#             referrer_id = referral.data["id"]
+
+#             # Prevent self-referral
+#             if str(referrer_id) == user_id:
+#                 raise HTTPException(
+#                     status_code=400,
+#                     detail="You cannot use your own referral code.",
+#                 )
+
+#         # -----------------------------------------------------
+#         # GENERATE THIS CUSTOMER'S OWN REFERRAL CODE
+#         # -----------------------------------------------------
+
+#         existing_profile = (
+#             CustomerRepository
+#             .get_profile(user_id)
+#         )
+
+#         my_referral_code = (
+#             existing_profile.get("referral_code")
+#             if existing_profile
+#             else None
+#         )
+
+#         if not my_referral_code:
+#             prefix = (
+#                 "".join(
+#                     character
+#                     for character in clean_name.upper()
+#                     if character.isalnum()
+#                 )[:3]
+#                 or "USR"
+#             )
+
+#             suffix = "".join(
+#                 random.choices(
+#                     string.ascii_uppercase
+#                     + string.digits,
+#                     k=6,
+#                 )
+#             )
+
+#             my_referral_code = (
+#                 f"NEAT-{prefix}{suffix}"
+#             )
+
+#         # -----------------------------------------------------
+#         # UPDATE SUPABASE AUTH USER
+#         # -----------------------------------------------------
+
+#         auth_payload = {
+#             "user_metadata": {
+#                 "full_name": clean_name,
+#                 "phone_number": f"+91{clean_phone}",
+#             }
+#         }
+
+#         if password:
+#             auth_payload["password"] = password
+
+#         if clean_email != (user.email or ""):
+#             auth_payload["email"] = clean_email
+
+#         try:
+#             supabase.auth.admin.update_user_by_id(
+#                 user_id,
+#                 auth_payload,
+#             )
+#         except Exception as exc:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=str(exc),
+#             ) from exc
+
+#         # -----------------------------------------------------
+#         # PROFILE
+#         # -----------------------------------------------------
+
+#         CustomerRepository.upsert_profile(
+#             user_id=user_id,
+#             full_name=clean_name,
+#             phone=clean_phone,
+#             address=(
+#                 existing_profile.get("address")
+#                 if existing_profile
+#                 else ""
+#             ),
+#             pincode=(
+#                 existing_profile.get("pincode")
+#                 if existing_profile
+#                 else ""
+#             ),
+#             email=clean_email,
+#             referral_code=my_referral_code,
+#             referred_by_id=referrer_id,
+#         )
+
+#         # -----------------------------------------------------
+#         # SIGNUP TABLE
+#         # -----------------------------------------------------
+
+#         (
+#             supabase
+#             .table("signup")
+#             .upsert(
+#                 {
+#                     "id": user_id,
+#                     "full_name": clean_name,
+#                     "email": clean_email,
+#                     "phone": clean_phone,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         # -----------------------------------------------------
+#         # WALLET
+#         # -----------------------------------------------------
+
+#         (
+#             supabase
+#             .table("wallet")
+#             .upsert(
+#                 {
+#                     "user_id": user_id,
+#                     "balance": 0,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         # -----------------------------------------------------
+#         # REFERRAL TRACKING + WELCOME COUPON
+#         # -----------------------------------------------------
+
+#         welcome_coupon_code = None
+
+#         if referrer_id:
+
+#             (
+#                 supabase
+#                 .table("referrals")
+#                 .insert(
+#                     {
+#                         "referrer_id": referrer_id,
+#                         "referred_user_id": user_id,
+#                         "status": "pending",
+#                     }
+#                 )
+#                 .execute()
+#             )
+
+#             welcome_coupon_code = (
+#                 "WELCOME50_"
+#                 + "".join(
+#                     random.choices(
+#                         string.ascii_uppercase
+#                         + string.digits,
+#                         k=4,
+#                     )
+#                 )
+#             )
+
+#             (
+#                 supabase
+#                 .table("coupons")
+#                 .insert(
+#                     {
+#                         "coupon_code": welcome_coupon_code,
+#                         "discount_amount": 50,
+#                         "is_used": False,
+#                         "phone_number": clean_phone,
+#                     }
+#                 )
+#                 .execute()
+#             )
+
+#             # -------------------------------------------------
+#             # AUTH METADATA
+#             # -------------------------------------------------
+
+#             try:
+#                 supabase.auth.admin.update_user_by_id(
+#                     user_id,
+#                     {
+#                         "user_metadata": {
+#                             "show_welcome_reward": True,
+#                             "welcome_coupon_code": (
+#                                 welcome_coupon_code
+#                             ),
+#                         }
+#                     },
+#                 )
+#             except Exception:
+#                 pass
+
+#         # -----------------------------------------------------
+#         # RETURN COMPLETE PROFILE
+#         # -----------------------------------------------------
+
+#         return CustomerProfileService.get_profile(
+#             customer=customer,
+#         )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import HTTPException, status
+
+from app.repositories.customer_repository import (
+    CustomerRepository,
+)
+
+import random
+import string
+
+
+class CustomerProfileService:
+
+    # =========================================================
+    # GET PROFILE
+    # =========================================================
+
+    @staticmethod
+    def get_profile(
+        customer,
+    ):
+        user = customer["user"]
+        user_id = str(user.id)
+
+        profile = (
+            CustomerRepository
+            .get_profile(user_id)
+        )
+
+        # -----------------------------------------------------
+        # PROFILE DOES NOT EXIST
+        # -----------------------------------------------------
+
+        if not profile:
+            return {
+                "id": user_id,
+                "full_name": None,
+                "email": user.email or "",
+                "phone": None,
+                "address": None,
+                "pincode": None,
+                "referral_code": None,
+            }
+
+        # -----------------------------------------------------
+        # AUTH EMAIL IS THE SOURCE OF TRUTH
+        # -----------------------------------------------------
+
+        return {
+            "id": user_id,
+            "full_name": profile.get("full_name"),
+            "email": (
+                user.email
+                or profile.get("email")
+                or ""
+            ),
+            "phone": profile.get("phone"),
+            "address": profile.get("address"),
+            "pincode": profile.get("pincode"),
+            "referral_code": profile.get("referral_code"),
+        }
+
+    # =========================================================
+    # UPDATE PROFILE
+    # =========================================================
+
+    @staticmethod
+    def update_profile(
+        customer,
+        full_name: str,
+        phone: str,
+        address: str,
+        pincode: str,
+    ):
+        user = customer["user"]
+        user_id = str(user.id)
+
+        # -----------------------------------------------------
+        # CLEAN PHONE
+        # -----------------------------------------------------
+
+        clean_phone = "".join(
+            character
+            for character in phone
+            if character.isdigit()
+        )
+
+        if len(clean_phone) != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Phone number must be exactly "
+                    "10 digits."
+                ),
+            )
+
+        # -----------------------------------------------------
+        # CLEAN DATA
+        # -----------------------------------------------------
+
+        clean_name = full_name.strip()
+        clean_address = address.strip()
+        clean_pincode = pincode.strip()
+
+        if not clean_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Full name is required.",
+            )
+
+        # -----------------------------------------------------
+        # AUTH EMAIL
+        # -----------------------------------------------------
+
+        email = user.email or ""
+
+        # -----------------------------------------------------
+        # UPSERT PROFILE
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_profile(
+            user_id=user_id,
+            full_name=clean_name,
+            phone=clean_phone,
+            address=clean_address,
+            pincode=clean_pincode,
+            email=email,
+        )
+
+        # -----------------------------------------------------
+        # RETURN UPDATED PROFILE
+        # -----------------------------------------------------
+
+        return (
+            CustomerProfileService
+            .get_profile(
+                customer=customer,
+            )
+        )
+
+    # =========================================================
+    # COMPLETE PROFILE
+    # =========================================================
+
+    @staticmethod
+    def complete_profile(
+        customer,
+        full_name: str,
+        email: str,
+        phone: str,
+        password: str | None = None,
+        referral_code: str | None = None,
+    ):
+        user = customer["user"]
+        user_id = str(user.id)
+
+        # -----------------------------------------------------
+        # CLEAN DATA
+        # -----------------------------------------------------
+
+        clean_name = full_name.strip()
+        clean_email = email.strip()
+
+        clean_phone = "".join(
+            character
+            for character in phone
+            if character.isdigit()
+        )[-10:]
+
+        if not clean_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Full name is required.",
+            )
+
+        if len(clean_phone) != 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Phone number must be exactly 10 digits.",
+            )
+
+        if not clean_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email is required.",
+            )
+
+        # -----------------------------------------------------
+        # REFERRAL
+        # -----------------------------------------------------
+
+        referrer_id = None
+
+        if referral_code and referral_code.strip():
+
+            referral = (
+                CustomerRepository
+                .get_referrer_by_code(
+                    referral_code.strip().upper()
+                )
+            )
+
+            if not referral:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid referral code.",
+                )
+
+            referrer_id = referral["id"]
+
+            # Prevent self-referral
+            if str(referrer_id) == user_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "You cannot use your own referral code."
+                    ),
+                )
+
+        # -----------------------------------------------------
+        # GET EXISTING PROFILE
+        # -----------------------------------------------------
+
+        existing_profile = (
+            CustomerRepository
+            .get_profile(user_id)
+        )
+
+        # -----------------------------------------------------
+        # GENERATE THIS CUSTOMER'S OWN REFERRAL CODE
+        # -----------------------------------------------------
+
+        my_referral_code = (
+            existing_profile.get("referral_code")
+            if existing_profile
+            else None
+        )
+
+        if not my_referral_code:
+
+            prefix = (
+                "".join(
+                    character
+                    for character in clean_name.upper()
+                    if character.isalnum()
+                )[:3]
+                or "USR"
+            )
+
+            suffix = "".join(
+                random.choices(
+                    string.ascii_uppercase
+                    + string.digits,
+                    k=6,
+                )
+            )
+
+            my_referral_code = (
+                f"NEAT-{prefix}{suffix}"
+            )
+
+        # -----------------------------------------------------
+        # UPDATE AUTH USER
+        # -----------------------------------------------------
+
+        auth_payload = {
+            "user_metadata": {
+                "full_name": clean_name,
+                "phone_number": f"+91{clean_phone}",
+            }
+        }
+
+        if password:
+            auth_payload["password"] = password
+
+        if clean_email != (user.email or ""):
+            auth_payload["email"] = clean_email
+
+        try:
+            CustomerRepository.update_auth_user(
+                user_id=user_id,
+                auth_payload=auth_payload,
+            )
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        # -----------------------------------------------------
+        # PROFILE
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_profile(
+            user_id=user_id,
+            full_name=clean_name,
+            phone=clean_phone,
+            address=(
+                existing_profile.get("address")
+                if existing_profile
+                else ""
+            ),
+            pincode=(
+                existing_profile.get("pincode")
+                if existing_profile
+                else ""
+            ),
+            email=clean_email,
+            referral_code=my_referral_code,
+            referred_by_id=referrer_id,
+        )
+
+        # -----------------------------------------------------
+        # SIGNUP TABLE
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_signup(
+            user_id=user_id,
+            full_name=clean_name,
+            email=clean_email,
+            phone=clean_phone,
+        )
+
+        # -----------------------------------------------------
+        # WALLET
+        # -----------------------------------------------------
+
+        CustomerRepository.upsert_wallet(
+            user_id=user_id,
+        )
+
+        # -----------------------------------------------------
+        # REFERRAL TRACKING + WELCOME COUPON
+        # -----------------------------------------------------
+
+        welcome_coupon_code = None
+
+        if referrer_id:
+
+            # -------------------------------------------------
+            # CREATE REFERRAL
+            # -------------------------------------------------
+
+            CustomerRepository.create_referral(
+                referrer_id=referrer_id,
+                referred_user_id=user_id,
+            )
+
+            # -------------------------------------------------
+            # GENERATE WELCOME COUPON
+            # -------------------------------------------------
+
+            welcome_coupon_code = (
+                "WELCOME50_"
+                + "".join(
+                    random.choices(
+                        string.ascii_uppercase
+                        + string.digits,
+                        k=4,
+                    )
+                )
+            )
+
+            # -------------------------------------------------
+            # CREATE WELCOME COUPON
+            # -------------------------------------------------
+
+            CustomerRepository.create_welcome_coupon(
+                coupon_code=welcome_coupon_code,
+                phone=clean_phone,
+            )
+
+            # -------------------------------------------------
+            # AUTH METADATA
+            # -------------------------------------------------
+
+            CustomerRepository.update_welcome_reward(
+                user_id=user_id,
+                coupon_code=welcome_coupon_code,
+            )
+
+        # -----------------------------------------------------
+        # RETURN COMPLETE PROFILE
+        # -----------------------------------------------------
+
+        return (
+            CustomerProfileService
+            .get_profile(
+                customer=customer,
+            )
+        )
+</file>
+
+<file path="app/schemas/customer_auth.py">
+# from pydantic import BaseModel, EmailStr
+
+
+# class CustomerLoginRequest(BaseModel):
+#     email: EmailStr
+#     password: str
+
+
+# class CustomerLoginResponse(BaseModel):
+#     access_token: str
+#     refresh_token: str
+#     token_type: str = "bearer"
+#     user_id: str
+#     email: str
+#     profile_exists: bool
+
+
+# class CustomerProfileSummary(BaseModel):
+#     id: str
+#     full_name: str | None = None
+#     email: str | None = None
+#     phone: str | None = None
+
+
+# class CustomerMeResponse(BaseModel):
+#     id: str
+#     email: str
+#     profile_exists: bool
+#     profile: CustomerProfileSummary | None = None
+
+
+# class CustomerLogoutResponse(BaseModel):
+#     success: bool
+#     message: str
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from pydantic import BaseModel, EmailStr, Field
+
+
+# class CustomerLoginRequest(BaseModel):
+#     email: EmailStr
+#     password: str
+
+
+# class CustomerLoginResponse(BaseModel):
+#     access_token: str
+#     refresh_token: str
+#     token_type: str = "bearer"
+#     user_id: str
+#     email: str
+#     profile_exists: bool
+
+
+# class CustomerSignupRequest(BaseModel):
+#     full_name: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=100,
+#     )
+#     email: EmailStr
+#     phone: str
+#     password: str = Field(
+#         ...,
+#         min_length=6,
+#     )
+
+
+# class CustomerSignupResponse(BaseModel):
+#     user_id: str
+#     email: str
+#     profile_created: bool
+#     email_confirmation_required: bool
+#     message: str
+
+
+# class CustomerProfileSummary(BaseModel):
+#     id: str
+#     full_name: str | None = None
+#     email: str | None = None
+#     phone: str | None = None
+
+
+# class CustomerMeResponse(BaseModel):
+#     id: str
+#     email: str
+#     email_confirmed: bool
+#     profile_exists: bool
+#     profile_complete: bool
+#     profile: CustomerProfileSummary | None = None
+
+
+# class CustomerProfileCompletenessResponse(BaseModel):
+#     profile_exists: bool
+#     profile_complete: bool
+#     email_confirmed: bool
+#     missing_fields: list[str]
+
+
+# class CustomerSendOtpRequest(BaseModel):
+#     phone: str
+
+
+# class CustomerSendOtpResponse(BaseModel):
+#     success: bool
+#     message: str
+
+
+# class CustomerVerifyOtpRequest(BaseModel):
+#     phone: str
+#     otp: str
+
+
+# class CustomerVerifyOtpResponse(BaseModel):
+#     success: bool
+#     is_new_user: bool
+#     email: str | None = None
+#     temp_password: str | None = None
+#     message: str
+
+
+# class CustomerLogoutResponse(BaseModel):
+#     success: bool
+#     message: str
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from pydantic import BaseModel, EmailStr, Field
+
+
+# class CustomerLoginRequest(BaseModel):
+
+#     email: EmailStr
+
+#     password: str
+
+
+# class CustomerLoginResponse(BaseModel):
+
+#     access_token: str
+
+#     refresh_token: str
+
+#     token_type: str = "bearer"
+
+#     user_id: str
+
+#     email: str
+
+#     profile_exists: bool
+
+
+# class CustomerSignupRequest(BaseModel):
+
+#     full_name: str = Field(
+#         ...,
+#         min_length=1,
+#         max_length=100,
+#     )
+
+#     email: EmailStr
+
+#     phone: str
+
+#     password: str = Field(
+#         ...,
+#         min_length=6,
+#     )
+
+
+# class CustomerSignupResponse(BaseModel):
+
+#     user_id: str
+
+#     email: str
+
+#     profile_created: bool
+
+#     email_confirmation_required: bool
+
+#     message: str
+
+
+# class CustomerProfileSummary(BaseModel):
+
+#     id: str
+
+#     full_name: str | None = None
+
+#     email: str | None = None
+
+#     phone: str | None = None
+
+
+# class CustomerMeResponse(BaseModel):
+
+#     id: str
+
+#     email: str
+
+#     email_confirmed: bool
+
+#     profile_exists: bool
+
+#     profile_complete: bool
+
+#     profile: CustomerProfileSummary | None = None
+
+
+# class CustomerProfileCompletenessResponse(BaseModel):
+
+#     profile_exists: bool
+
+#     profile_complete: bool
+
+#     email_confirmed: bool
+
+#     missing_fields: list[str]
+
+
+# class CustomerSendOtpRequest(BaseModel):
+
+#     phone: str
+
+
+# class CustomerSendOtpResponse(BaseModel):
+
+#     success: bool
+
+#     message: str
+
+
+# class CustomerVerifyOtpRequest(BaseModel):
+
+#     phone: str
+
+#     otp: str
+
+
+# class CustomerVerifyOtpResponse(BaseModel):
+
+#     success: bool
+
+#     is_new_user: bool
+
+#     email: str | None = None
+
+#     temp_password: str | None = None
+
+#     message: str
+
+
+# class CustomerLogoutResponse(BaseModel):
+
+#     success: bool
+
+#     message: str
+
+
+# # =========================================================
+# # CUSTOMER REWARDS / OFFERS
+# # =========================================================
+
+# class CustomerRewardsResponse(BaseModel):
+
+#     show_welcome_reward: bool = False
+
+#     welcome_coupon_code: str | None = None
+
+#     show_signup_offer_popup: bool = False
+
+#     signup_service_title: str | None = None
+
+#     signup_service_id: str | None = None
+
+
+# class CustomerRewardsUpdateRequest(BaseModel):
+
+#     show_welcome_reward: bool | None = None
+
+#     show_signup_offer_popup: bool | None = None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from pydantic import BaseModel, EmailStr, Field
+
+
+class CustomerLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class CustomerLoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    profile_exists: bool
+
+
+class CustomerSignupRequest(BaseModel):
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+    email: EmailStr
+    phone: str
+    password: str = Field(
+        ...,
+        min_length=6,
+    )
+
+
+class CustomerSignupResponse(BaseModel):
+    user_id: str
+    email: str
+    profile_created: bool
+    email_confirmation_required: bool
+    message: str
+
+
+class CustomerProfileSummary(BaseModel):
+    id: str
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+
+
+class CustomerMeResponse(BaseModel):
+    id: str
+    email: str
+    email_confirmed: bool
+    profile_exists: bool
+    profile_complete: bool
+    profile: CustomerProfileSummary | None = None
+
+
+class CustomerProfileCompletenessResponse(BaseModel):
+    profile_exists: bool
+    profile_complete: bool
+    email_confirmed: bool
+    missing_fields: list[str]
+
+
+class CustomerSendOtpRequest(BaseModel):
+    phone: str
+
+
+class CustomerSendOtpResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class CustomerVerifyOtpRequest(BaseModel):
+    phone: str
+    otp: str
+
+
+class CustomerVerifyOtpResponse(BaseModel):
+    success: bool
+    is_new_user: bool
+    email: str | None = None
+    temp_password: str | None = None
+    message: str
+
+
+class CustomerLogoutResponse(BaseModel):
+    success: bool
+    message: str
+
+
+# =========================================================
+# CUSTOMER REWARDS / OFFERS
+# =========================================================
+
+class CustomerRewardsResponse(BaseModel):
+    show_welcome_reward: bool = False
+    welcome_coupon_code: str | None = None
+    show_signup_offer_popup: bool = False
+    signup_service_title: str | None = None
+    signup_service_id: str | None = None
+
+
+class CustomerRewardsUpdateRequest(BaseModel):
+    show_welcome_reward: bool | None = None
+    show_signup_offer_popup: bool | None = None
+
+
+# =========================================================
+# GOOGLE OAUTH
+# =========================================================
+
+class CustomerGoogleOAuthUrlRequest(BaseModel):
+    redirect_to: str = Field(
+        ...,
+        min_length=1,
+        description="Redirect URL for the OAuth flow",
+    )
+
+
+class CustomerGoogleOAuthUrlResponse(BaseModel):
+    oauth_url: str
+    provider: str = "google"
+
+
+class CustomerGoogleExchangeRequest(BaseModel):
+    auth_code: str = Field(
+        ...,
+        min_length=1,
+        description="Authorization code from Google OAuth callback",
+    )
+
+
+class CustomerGoogleExchangeResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    full_name: str | None = None
+    profile_exists: bool
+    profile_complete: bool = False
+    is_new_user: bool = False
+</file>
+
 <file path="app/services/customer_auth_service.py">
 # from fastapi import HTTPException, status
 
@@ -27103,7 +27128,649 @@ class CustomerBookingResponse(BaseModel):
 
 
 
+# import re
+
+# from fastapi import HTTPException, status
+
+# from app.repositories.customer_repository import (
+#     CustomerRepository,
+# )
+
+# from app.supabase.client import supabase
+
+
+# class CustomerAuthService:
+
+#     # =========================================================
+#     # PHONE NORMALIZATION
+#     # =========================================================
+
+#     @staticmethod
+#     def normalize_phone(phone: str) -> str:
+#         return "".join(
+#             character
+#             for character in phone
+#             if character.isdigit()
+#         )[-10:]
+
+#     # =========================================================
+#     # LOGIN
+#     # =========================================================
+
+#     @staticmethod
+#     def login(
+#         email: str,
+#         password: str,
+#     ):
+#         try:
+#             response = (
+#                 supabase.auth.sign_in_with_password(
+#                     {
+#                         "email": email,
+#                         "password": password,
+#                     }
+#                 )
+#             )
+
+#         except Exception as exc:
+#             raise HTTPException(
+#                 status_code=status.HTTP_401_UNAUTHORIZED,
+#                 detail="Invalid email or password.",
+#             ) from exc
+
+#         if not response.session or not response.user:
+#             raise HTTPException(
+#                 status_code=status.HTTP_401_UNAUTHORIZED,
+#                 detail="Invalid email or password.",
+#             )
+
+#         user = response.user
+#         session = response.session
+
+#         profile = (
+#             CustomerRepository
+#             .get_profile(str(user.id))
+#         )
+
+#         return {
+#             "access_token": session.access_token,
+#             "refresh_token": session.refresh_token,
+#             "token_type": "bearer",
+#             "user_id": str(user.id),
+#             "email": user.email or email,
+#             "profile_exists": profile is not None,
+#         }
+
+#     # =========================================================
+#     # SIGNUP
+#     # =========================================================
+
+#     @staticmethod
+#     def signup(
+#         full_name: str,
+#         email: str,
+#         phone: str,
+#         password: str,
+#     ):
+#         clean_name = full_name.strip()
+#         clean_phone = (
+#             CustomerAuthService
+#             .normalize_phone(phone)
+#         )
+
+#         if not clean_name:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Full name is required.",
+#             )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Phone number must be exactly 10 digits.",
+#             )
+
+#         try:
+#             response = supabase.auth.sign_up(
+#                 {
+#                     "email": email,
+#                     "password": password,
+#                     "options": {
+#                         "data": {
+#                             "full_name": clean_name,
+#                             "phone": clean_phone,
+#                         }
+#                     },
+#                 }
+#             )
+
+#         except Exception as exc:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=str(exc),
+#             ) from exc
+
+#         if not response.user:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Customer signup failed.",
+#             )
+
+#         user = response.user
+
+#         profile_created = False
+
+#         # -----------------------------------------------------
+#         # Create customer profile when Supabase returns
+#         # a user immediately.
+#         # -----------------------------------------------------
+
+#         try:
+#             CustomerRepository.upsert_profile(
+#                 user_id=str(user.id),
+#                 full_name=clean_name,
+#                 phone=clean_phone,
+#                 address="",
+#                 pincode="",
+#                 email=email,
+#             )
+
+#             profile_created = True
+
+#         except Exception:
+#             # Auth user was created successfully.
+#             # Profile can be completed later.
+#             profile_created = False
+
+#         email_confirmation_required = (
+#             getattr(user, "email_confirmed_at", None)
+#             is None
+#         )
+
+#         return {
+#             "user_id": str(user.id),
+#             "email": user.email or email,
+#             "profile_created": profile_created,
+#             "email_confirmation_required": (
+#                 email_confirmation_required
+#             ),
+#             "message": (
+#                 "Signup successful. "
+#                 "Please confirm your email."
+#                 if email_confirmation_required
+#                 else "Signup successful."
+#             ),
+#         }
+
+#     # =========================================================
+#     # CURRENT USER
+#     # =========================================================
+
+#     @staticmethod
+#     def get_current_user(
+#         access_token: str,
+#     ):
+#         try:
+#             response = (
+#                 supabase.auth.get_user(
+#                     access_token
+#                 )
+#             )
+
+#         except Exception as exc:
+#             raise HTTPException(
+#                 status_code=status.HTTP_401_UNAUTHORIZED,
+#                 detail="Invalid or expired access token.",
+#             ) from exc
+
+#         if not response.user:
+#             raise HTTPException(
+#                 status_code=status.HTTP_401_UNAUTHORIZED,
+#                 detail="Invalid or expired access token.",
+#             )
+
+#         return response.user
+
+#     # =========================================================
+#     # PROFILE COMPLETENESS
+#     # =========================================================
+
+#     @staticmethod
+#     def get_profile_completeness(
+#         access_token: str,
+#     ):
+#         user = (
+#             CustomerAuthService
+#             .get_current_user(
+#                 access_token
+#             )
+#         )
+
+#         user_id = str(user.id)
+
+#         profile = (
+#             CustomerRepository
+#             .get_profile(user_id)
+#         )
+
+#         email_confirmed = (
+#             getattr(
+#                 user,
+#                 "email_confirmed_at",
+#                 None,
+#             )
+#             is not None
+#         )
+
+#         missing_fields = []
+
+#         if not profile:
+#             missing_fields.extend(
+#                 [
+#                     "full_name",
+#                     "email",
+#                     "phone",
+#                 ]
+#             )
+#         else:
+#             if not profile.get("full_name"):
+#                 missing_fields.append(
+#                     "full_name"
+#                 )
+
+#             if not (
+#                 profile.get("email")
+#                 or user.email
+#             ):
+#                 missing_fields.append(
+#                     "email"
+#                 )
+
+#             if not profile.get("phone"):
+#                 missing_fields.append(
+#                     "phone"
+#                 )
+
+#         if not email_confirmed:
+#             missing_fields.append(
+#                 "email_confirmation"
+#             )
+
+#         return {
+#             "profile_exists": profile is not None,
+#             "profile_complete": (
+#                 len(missing_fields) == 0
+#             ),
+#             "email_confirmed": email_confirmed,
+#             "missing_fields": missing_fields,
+#         }
+
+#     # =========================================================
+#     # ME
+#     # =========================================================
+
+#     @staticmethod
+#     def get_me(
+#         access_token: str,
+#     ):
+#         user = (
+#             CustomerAuthService
+#             .get_current_user(
+#                 access_token
+#             )
+#         )
+
+#         user_id = str(user.id)
+
+#         profile = (
+#             CustomerRepository
+#             .get_profile(user_id)
+#         )
+
+#         completeness = (
+#             CustomerAuthService
+#             .get_profile_completeness(
+#                 access_token
+#             )
+#         )
+
+#         return {
+#             "id": user_id,
+#             "email": user.email or "",
+#             "email_confirmed": (
+#                 getattr(
+#                     user,
+#                     "email_confirmed_at",
+#                     None,
+#                 )
+#                 is not None
+#             ),
+#             "profile_exists": profile is not None,
+#             "profile_complete": (
+#                 completeness[
+#                     "profile_complete"
+#                 ]
+#             ),
+#             "profile": profile,
+#         }
+
+#     # =========================================================
+#     # SEND OTP
+#     # =========================================================
+
+#     @staticmethod
+#     def send_otp(
+#         phone: str,
+#     ):
+#         clean_phone = (
+#             CustomerAuthService
+#             .normalize_phone(phone)
+#         )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Phone number must be exactly 10 digits.",
+#             )
+
+#         try:
+#             response = (
+#                 supabase.functions.invoke(
+#                     "msg91-send-otp",
+#                     {
+#                         "body": {
+#                             "phone": clean_phone,
+#                         }
+#                     },
+#                 )
+#             )
+
+#         # except Exception as exc:
+#         #     raise HTTPException(
+#         #         status_code=502,
+#         #         detail="Failed to send OTP.",
+#         #     ) from exc
+#         except Exception as exc:
+#             print("❌ MSG91 SEND OTP ERROR:", repr(exc))
+
+#             raise HTTPException(
+#                 status_code=502,
+#                 detail=str(exc),
+#             ) from exc
+
+#         data = response.get("data")
+
+#         if isinstance(data, dict) and data.get("error"):
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=data["error"],
+#             )
+
+#         return {
+#             "success": True,
+#             "message": "OTP sent successfully.",
+#         }
+
+#     # =========================================================
+#     # VERIFY OTP
+#     # =========================================================
+
+#     @staticmethod
+#     def verify_otp(
+#         phone: str,
+#         otp: str,
+#     ):
+#         clean_phone = (
+#             CustomerAuthService
+#             .normalize_phone(phone)
+#         )
+
+#         if len(clean_phone) != 10:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Phone number must be exactly 10 digits.",
+#             )
+
+#         if not otp:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="OTP is required.",
+#             )
+
+#         try:
+#             response = (
+#                 supabase.functions.invoke(
+#                     "msg91-verify-otp",
+#                     {
+#                         "body": {
+#                             "phone": clean_phone,
+#                             "otp": otp,
+#                         }
+#                     },
+#                 )
+#             )
+
+#         except Exception as exc:
+#             raise HTTPException(
+#                 status_code=502,
+#                 detail="Failed to verify OTP.",
+#             ) from exc
+
+#         data = response.get("data")
+
+#         if not isinstance(data, dict):
+#             raise HTTPException(
+#                 status_code=502,
+#                 detail="Invalid OTP service response.",
+#             )
+
+#         if data.get("error"):
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail=data["error"],
+#             )
+
+#         is_new_user = bool(
+#             data.get("isNewUser")
+#         )
+
+#         if is_new_user:
+#             return {
+#                 "success": True,
+#                 "is_new_user": True,
+#                 "email": None,
+#                 "temp_password": None,
+#                 "message": (
+#                     "OTP verified. "
+#                     "Customer profile can be completed."
+#                 ),
+#             }
+
+#         return {
+#             "success": True,
+#             "is_new_user": False,
+#             "email": data.get("email"),
+#             "temp_password": data.get(
+#                 "tempPassword"
+#             ),
+#             "message": (
+#                 "OTP verified successfully."
+#             ),
+#         }
+#         # =========================================================
+#     # CUSTOMER REWARDS / OFFERS
+#     # =========================================================
+
+#     @staticmethod
+#     def get_rewards(
+#         access_token: str,
+#     ):
+#         user = (
+#             CustomerAuthService
+#             .get_current_user(
+#                 access_token
+#             )
+#         )
+
+#         metadata = getattr(
+#             user,
+#             "user_metadata",
+#             None,
+#         ) or {}
+
+#         return {
+#             "show_welcome_reward": bool(
+#                 metadata.get(
+#                     "show_welcome_reward",
+#                     False,
+#                 )
+#             ),
+#             "welcome_coupon_code": metadata.get(
+#                 "welcome_coupon_code"
+#             ),
+#             "show_signup_offer_popup": bool(
+#                 metadata.get(
+#                     "show_signup_offer_popup",
+#                     False,
+#                 )
+#             ),
+#             "signup_service_title": metadata.get(
+#                 "signup_service_title"
+#             ),
+#             "signup_service_id": metadata.get(
+#                 "signup_service_id"
+#             ),
+#         }
+
+#     @staticmethod
+#     def update_rewards(
+#         access_token: str,
+#         show_welcome_reward: bool | None = None,
+#         show_signup_offer_popup: bool | None = None,
+#     ):
+#         user = (
+#             CustomerAuthService
+#             .get_current_user(
+#                 access_token
+#             )
+#         )
+
+#         metadata = getattr(
+#             user,
+#             "user_metadata",
+#             None,
+#         ) or {}
+
+#         update_data = {}
+
+#         if show_welcome_reward is not None:
+#             update_data[
+#                 "show_welcome_reward"
+#             ] = show_welcome_reward
+
+#         if show_signup_offer_popup is not None:
+#             update_data[
+#                 "show_signup_offer_popup"
+#             ] = show_signup_offer_popup
+
+#         if update_data:
+#             metadata.update(update_data)
+
+#             try:
+#                 response = (
+#                     supabase.auth.admin.update_user_by_id(
+#                         str(user.id),
+#                         {
+#                             "user_metadata": metadata
+#                         },
+#                     )
+#                 )
+#             except Exception as exc:
+#                 raise HTTPException(
+#                     status_code=500,
+#                     detail="Failed to update customer rewards.",
+#                 ) from exc
+
+#             updated_user = getattr(
+#                 response,
+#                 "user",
+#                 None,
+#             )
+
+#             if updated_user:
+#                 metadata = (
+#                     getattr(
+#                         updated_user,
+#                         "user_metadata",
+#                         None,
+#                     )
+#                     or metadata
+#                 )
+
+#         return {
+#             "show_welcome_reward": bool(
+#                 metadata.get(
+#                     "show_welcome_reward",
+#                     False,
+#                 )
+#             ),
+#             "welcome_coupon_code": metadata.get(
+#                 "welcome_coupon_code"
+#             ),
+#             "show_signup_offer_popup": bool(
+#                 metadata.get(
+#                     "show_signup_offer_popup",
+#                     False,
+#                 )
+#             ),
+#             "signup_service_title": metadata.get(
+#                 "signup_service_title"
+#             ),
+#             "signup_service_id": metadata.get(
+#                 "signup_service_id"
+#             ),
+#         }
+
+#     # =========================================================
+#     # LOGOUT
+#     # =========================================================
+
+#     @staticmethod
+#     def logout(
+#         access_token: str,
+#     ):
+#         CustomerAuthService.get_current_user(
+#             access_token
+#         )
+
+#         return {
+#             "success": True,
+#             "message": "Customer logged out successfully.",
+#         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import re
+import jwt
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 
@@ -27112,6 +27779,7 @@ from app.repositories.customer_repository import (
 )
 
 from app.supabase.client import supabase
+from app.config.settings import settings
 
 
 class CustomerAuthService:
@@ -27460,14 +28128,8 @@ class CustomerAuthService:
                 )
             )
 
-        # except Exception as exc:
-        #     raise HTTPException(
-        #         status_code=502,
-        #         detail="Failed to send OTP.",
-        #     ) from exc
         except Exception as exc:
             print("❌ MSG91 SEND OTP ERROR:", repr(exc))
-
             raise HTTPException(
                 status_code=502,
                 detail=str(exc),
@@ -27572,7 +28234,8 @@ class CustomerAuthService:
                 "OTP verified successfully."
             ),
         }
-        # =========================================================
+
+    # =========================================================
     # CUSTOMER REWARDS / OFFERS
     # =========================================================
 
@@ -27721,6 +28384,67 @@ class CustomerAuthService:
         return {
             "success": True,
             "message": "Customer logged out successfully.",
+        }
+
+    # =========================================================
+    # ✅ GOOGLE OAUTH HELPERS (NEW)
+    # =========================================================
+
+    @staticmethod
+    def _create_backend_token(user_id: str) -> str:
+        """
+        Create a JWT token for the user.
+        This token will be used by the frontend for subsequent API calls.
+        """
+        try:
+            payload = {
+                "sub": user_id,
+                "exp": datetime.utcnow() + timedelta(days=7),
+                "iat": datetime.utcnow(),
+            }
+            
+            token = jwt.encode(
+                payload,
+                settings.secret_key,
+                algorithm="HS256"
+            )
+            
+            return token
+            
+        except Exception as e:
+            print(f"❌ [GoogleAuth] Failed to create token: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create authentication token: {str(e)}"
+            )
+
+    @staticmethod
+    def _get_profile_completeness_for_user(user_id: str) -> dict:
+        """
+        Get profile completeness for a user by ID.
+        Used internally for Google OAuth flow.
+        """
+        profile = CustomerRepository.get_profile(user_id)
+        
+        if not profile:
+            return {
+                "profile_exists": False,
+                "profile_complete": False,
+                "missing_fields": ["full_name", "email", "phone"]
+            }
+        
+        missing_fields = []
+        if not profile.get("full_name"):
+            missing_fields.append("full_name")
+        if not profile.get("email"):
+            missing_fields.append("email")
+        if not profile.get("phone"):
+            missing_fields.append("phone")
+        
+        return {
+            "profile_exists": True,
+            "profile_complete": len(missing_fields) == 0,
+            "missing_fields": missing_fields
         }
 </file>
 
@@ -30115,6 +30839,997 @@ def get_booking(
     return booking
 </file>
 
+<file path="app/api/v1/endpoints/customer_auth.py">
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_auth import (
+#     CustomerLoginRequest,
+#     CustomerLoginResponse,
+#     CustomerMeResponse,
+#     CustomerLogoutResponse,
+# )
+
+# from app.services.customer_auth_service import (
+#     CustomerAuthService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CUSTOMER LOGIN
+# # =========================================================
+
+# @router.post(
+#     "/login",
+#     response_model=CustomerLoginResponse,
+# )
+# async def customer_login(
+#     request: CustomerLoginRequest,
+# ):
+#     return CustomerAuthService.login(
+#         email=request.email,
+#         password=request.password,
+#     )
+
+
+# # =========================================================
+# # CUSTOMER ME
+# # =========================================================
+
+# @router.get(
+#     "/me",
+#     response_model=CustomerMeResponse,
+# )
+# async def customer_me(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.get_me(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+# # =========================================================
+# # CUSTOMER LOGOUT
+# # =========================================================
+
+# @router.post(
+#     "/logout",
+#     response_model=CustomerLogoutResponse,
+# )
+# async def customer_logout(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.logout(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_auth import (
+#     CustomerLoginRequest,
+#     CustomerLoginResponse,
+#     CustomerSignupRequest,
+#     CustomerSignupResponse,
+#     CustomerMeResponse,
+#     CustomerProfileCompletenessResponse,
+#     CustomerSendOtpRequest,
+#     CustomerSendOtpResponse,
+#     CustomerVerifyOtpRequest,
+#     CustomerVerifyOtpResponse,
+#     CustomerLogoutResponse,
+# )
+
+# from app.services.customer_auth_service import (
+#     CustomerAuthService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CUSTOMER LOGIN
+# # =========================================================
+
+# @router.post(
+#     "/login",
+#     response_model=CustomerLoginResponse,
+# )
+# async def customer_login(
+#     request: CustomerLoginRequest,
+# ):
+#     return CustomerAuthService.login(
+#         email=request.email,
+#         password=request.password,
+#     )
+
+
+# # =========================================================
+# # CUSTOMER SIGNUP
+# # =========================================================
+
+# @router.post(
+#     "/signup",
+#     response_model=CustomerSignupResponse,
+# )
+# async def customer_signup(
+#     request: CustomerSignupRequest,
+# ):
+#     return CustomerAuthService.signup(
+#         full_name=request.full_name,
+#         email=request.email,
+#         phone=request.phone,
+#         password=request.password,
+#     )
+
+
+# # =========================================================
+# # CURRENT CUSTOMER
+# # =========================================================
+
+# @router.get(
+#     "/me",
+#     response_model=CustomerMeResponse,
+# )
+# async def customer_me(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.get_me(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+# # =========================================================
+# # CUSTOMER PROFILE COMPLETENESS
+# # =========================================================
+
+# @router.get(
+#     "/profile-completeness",
+#     response_model=CustomerProfileCompletenessResponse,
+# )
+# async def customer_profile_completeness(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return (
+#         CustomerAuthService
+#         .get_profile_completeness(
+#             access_token=current_customer[
+#                 "access_token"
+#             ],
+#         )
+#     )
+
+
+# # =========================================================
+# # SEND CUSTOMER OTP
+# # =========================================================
+
+# @router.post(
+#     "/send-otp",
+#     response_model=CustomerSendOtpResponse,
+# )
+# async def customer_send_otp(
+#     request: CustomerSendOtpRequest,
+# ):
+#     return CustomerAuthService.send_otp(
+#         phone=request.phone,
+#     )
+
+
+# # =========================================================
+# # VERIFY CUSTOMER OTP
+# # =========================================================
+
+# @router.post(
+#     "/verify-otp",
+#     response_model=CustomerVerifyOtpResponse,
+# )
+# async def customer_verify_otp(
+#     request: CustomerVerifyOtpRequest,
+# ):
+#     return CustomerAuthService.verify_otp(
+#         phone=request.phone,
+#         otp=request.otp,
+#     )
+
+
+# # =========================================================
+# # CUSTOMER LOGOUT
+# # =========================================================
+
+# @router.post(
+#     "/logout",
+#     response_model=CustomerLogoutResponse,
+# )
+# async def customer_logout(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.logout(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from fastapi import APIRouter, Depends
+
+# from app.dependencies.customer_auth import (
+#     get_current_customer,
+# )
+
+# from app.schemas.customer_auth import (
+#     CustomerLoginRequest,
+#     CustomerLoginResponse,
+#     CustomerSignupRequest,
+#     CustomerSignupResponse,
+#     CustomerMeResponse,
+#     CustomerProfileCompletenessResponse,
+#     CustomerSendOtpRequest,
+#     CustomerSendOtpResponse,
+#     CustomerVerifyOtpRequest,
+#     CustomerVerifyOtpResponse,
+#     CustomerLogoutResponse,
+#     CustomerRewardsResponse,
+#     CustomerRewardsUpdateRequest,
+# )
+
+# from app.services.customer_auth_service import (
+#     CustomerAuthService,
+# )
+
+
+# router = APIRouter()
+
+
+# # =========================================================
+# # CUSTOMER LOGIN
+# # =========================================================
+
+# @router.post(
+#     "/login",
+#     response_model=CustomerLoginResponse,
+# )
+# async def customer_login(
+#     request: CustomerLoginRequest,
+# ):
+#     return CustomerAuthService.login(
+#         email=request.email,
+#         password=request.password,
+#     )
+
+
+# # =========================================================
+# # CUSTOMER SIGNUP
+# # =========================================================
+
+# @router.post(
+#     "/signup",
+#     response_model=CustomerSignupResponse,
+# )
+# async def customer_signup(
+#     request: CustomerSignupRequest,
+# ):
+#     return CustomerAuthService.signup(
+#         full_name=request.full_name,
+#         email=request.email,
+#         phone=request.phone,
+#         password=request.password,
+#     )
+
+
+# # =========================================================
+# # CURRENT CUSTOMER
+# # =========================================================
+
+# @router.get(
+#     "/me",
+#     response_model=CustomerMeResponse,
+# )
+# async def customer_me(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.get_me(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+# # =========================================================
+# # CUSTOMER PROFILE COMPLETENESS
+# # =========================================================
+
+# @router.get(
+#     "/profile-completeness",
+#     response_model=CustomerProfileCompletenessResponse,
+# )
+# async def customer_profile_completeness(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return (
+#         CustomerAuthService
+#         .get_profile_completeness(
+#             access_token=current_customer[
+#                 "access_token"
+#             ],
+#         )
+#     )
+
+
+# # =========================================================
+# # CUSTOMER REWARDS / OFFERS
+# # =========================================================
+
+# @router.get(
+#     "/rewards",
+#     response_model=CustomerRewardsResponse,
+# )
+# async def customer_rewards(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.get_rewards(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+# @router.patch(
+#     "/rewards",
+#     response_model=CustomerRewardsResponse,
+# )
+# async def update_customer_rewards(
+#     request: CustomerRewardsUpdateRequest,
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.update_rewards(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#         show_welcome_reward=request.show_welcome_reward,
+#         show_signup_offer_popup=request.show_signup_offer_popup,
+#     )
+
+
+# # =========================================================
+# # SEND CUSTOMER OTP
+# # =========================================================
+
+# @router.post(
+#     "/send-otp",
+#     response_model=CustomerSendOtpResponse,
+# )
+# async def customer_send_otp(
+#     request: CustomerSendOtpRequest,
+# ):
+#     return CustomerAuthService.send_otp(
+#         phone=request.phone,
+#     )
+
+
+# # =========================================================
+# # VERIFY CUSTOMER OTP
+# # =========================================================
+
+# @router.post(
+#     "/verify-otp",
+#     response_model=CustomerVerifyOtpResponse,
+# )
+# async def customer_verify_otp(
+#     request: CustomerVerifyOtpRequest,
+# ):
+#     return CustomerAuthService.verify_otp(
+#         phone=request.phone,
+#         otp=request.otp,
+#     )
+
+
+# # =========================================================
+# # CUSTOMER LOGOUT
+# # =========================================================
+
+# @router.post(
+#     "/logout",
+#     response_model=CustomerLogoutResponse,
+# )
+# async def customer_logout(
+#     current_customer=Depends(
+#         get_current_customer
+#     ),
+# ):
+#     return CustomerAuthService.logout(
+#         access_token=current_customer[
+#             "access_token"
+#         ],
+#     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.dependencies.customer_auth import (
+    get_current_customer,
+)
+
+from app.schemas.customer_auth import (
+    CustomerLoginRequest,
+    CustomerLoginResponse,
+    CustomerSignupRequest,
+    CustomerSignupResponse,
+    CustomerMeResponse,
+    CustomerProfileCompletenessResponse,
+    CustomerSendOtpRequest,
+    CustomerSendOtpResponse,
+    CustomerVerifyOtpRequest,
+    CustomerVerifyOtpResponse,
+    CustomerLogoutResponse,
+    CustomerRewardsResponse,
+    CustomerRewardsUpdateRequest,
+    # ✅ Google OAuth schemas
+    CustomerGoogleOAuthUrlRequest,
+    CustomerGoogleOAuthUrlResponse,
+    CustomerGoogleExchangeRequest,
+    CustomerGoogleExchangeResponse,
+)
+
+from app.services.customer_auth_service import (
+    CustomerAuthService,
+)
+
+# ✅ Import for Google OAuth
+from app.supabase.client import supabase
+from app.repositories.customer_repository import CustomerRepository
+
+
+router = APIRouter()
+
+
+# =========================================================
+# CUSTOMER LOGIN
+# =========================================================
+
+@router.post(
+    "/login",
+    response_model=CustomerLoginResponse,
+)
+async def customer_login(
+    request: CustomerLoginRequest,
+):
+    return CustomerAuthService.login(
+        email=request.email,
+        password=request.password,
+    )
+
+
+# =========================================================
+# CUSTOMER SIGNUP
+# =========================================================
+
+@router.post(
+    "/signup",
+    response_model=CustomerSignupResponse,
+)
+async def customer_signup(
+    request: CustomerSignupRequest,
+):
+    return CustomerAuthService.signup(
+        full_name=request.full_name,
+        email=request.email,
+        phone=request.phone,
+        password=request.password,
+    )
+
+
+# =========================================================
+# CURRENT CUSTOMER
+# =========================================================
+
+@router.get(
+    "/me",
+    response_model=CustomerMeResponse,
+)
+async def customer_me(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return CustomerAuthService.get_me(
+        access_token=current_customer[
+            "access_token"
+        ],
+    )
+
+
+# =========================================================
+# CUSTOMER PROFILE COMPLETENESS
+# =========================================================
+
+@router.get(
+    "/profile-completeness",
+    response_model=CustomerProfileCompletenessResponse,
+)
+async def customer_profile_completeness(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return (
+        CustomerAuthService
+        .get_profile_completeness(
+            access_token=current_customer[
+                "access_token"
+            ],
+        )
+    )
+
+
+# =========================================================
+# CUSTOMER REWARDS / OFFERS
+# =========================================================
+
+@router.get(
+    "/rewards",
+    response_model=CustomerRewardsResponse,
+)
+async def customer_rewards(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return CustomerAuthService.get_rewards(
+        access_token=current_customer[
+            "access_token"
+        ],
+    )
+
+
+@router.patch(
+    "/rewards",
+    response_model=CustomerRewardsResponse,
+)
+async def update_customer_rewards(
+    request: CustomerRewardsUpdateRequest,
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return CustomerAuthService.update_rewards(
+        access_token=current_customer[
+            "access_token"
+        ],
+        show_welcome_reward=request.show_welcome_reward,
+        show_signup_offer_popup=request.show_signup_offer_popup,
+    )
+
+
+# =========================================================
+# SEND CUSTOMER OTP
+# =========================================================
+
+@router.post(
+    "/send-otp",
+    response_model=CustomerSendOtpResponse,
+)
+async def customer_send_otp(
+    request: CustomerSendOtpRequest,
+):
+    return CustomerAuthService.send_otp(
+        phone=request.phone,
+    )
+
+
+# =========================================================
+# VERIFY CUSTOMER OTP
+# =========================================================
+
+@router.post(
+    "/verify-otp",
+    response_model=CustomerVerifyOtpResponse,
+)
+async def customer_verify_otp(
+    request: CustomerVerifyOtpRequest,
+):
+    return CustomerAuthService.verify_otp(
+        phone=request.phone,
+        otp=request.otp,
+    )
+
+
+# =========================================================
+# CUSTOMER LOGOUT
+# =========================================================
+
+@router.post(
+    "/logout",
+    response_model=CustomerLogoutResponse,
+)
+async def customer_logout(
+    current_customer=Depends(
+        get_current_customer
+    ),
+):
+    return CustomerAuthService.logout(
+        access_token=current_customer[
+            "access_token"
+        ],
+    )
+
+
+# =========================================================
+# ✅ GOOGLE OAUTH - GET OAUTH URL
+# =========================================================
+
+@router.post(
+    "/google/oauth-url",
+    response_model=CustomerGoogleOAuthUrlResponse,
+)
+async def get_google_oauth_url(
+    request: CustomerGoogleOAuthUrlRequest,
+):
+    """
+    Get Google OAuth URL for initiating the sign-in flow.
+    
+    This endpoint uses Supabase's OAuth capabilities but
+    returns the URL to the frontend for browser navigation.
+    """
+    try:
+        print(f"🔐 [GoogleAuth] Generating OAuth URL for redirect: {request.redirect_to}")
+        
+        # ✅ Use Supabase for OAuth URL generation
+        response = supabase.auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {
+                "redirectTo": request.redirect_to,
+            },
+        })
+        
+        oauth_url = None
+        
+        if hasattr(response, 'data'):
+            data = response.data
+            if hasattr(data, 'url'):
+                oauth_url = data.url
+            elif isinstance(data, dict):
+                oauth_url = data.get('url')
+        elif hasattr(response, 'url'):
+            oauth_url = response.url
+        elif isinstance(response, dict):
+            oauth_url = response.get('data', {}).get('url') or response.get('url')
+        
+        if not oauth_url:
+            print(f"❌ [GoogleAuth] Could not extract URL from response: {response}")
+            raise HTTPException(
+                status_code=400,
+                detail="No OAuth URL returned from Supabase"
+            )
+        
+        print(f"✅ [GoogleAuth] OAuth URL generated successfully")
+        
+        return CustomerGoogleOAuthUrlResponse(
+            oauth_url=oauth_url,
+            provider="google"
+        )
+        
+    except Exception as e:
+        print(f"❌ [GoogleAuth] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate OAuth URL: {str(e)}"
+        )
+
+
+# =========================================================
+# ✅ GOOGLE OAUTH - EXCHANGE CODE FOR TOKENS
+# =========================================================
+
+@router.post(
+    "/google/exchange",
+    response_model=CustomerGoogleExchangeResponse,
+)
+async def exchange_google_auth_code(
+    request: CustomerGoogleExchangeRequest,
+):
+    """
+    Exchange Google authorization code for user session and tokens.
+    
+    This endpoint:
+    1. Exchanges the Google auth code for a Supabase session
+    2. Gets user info from the session
+    3. Creates/updates user in the database
+    4. Returns a backend JWT token
+    """
+    try:
+        print(f"🔐 [GoogleAuth] Exchanging auth code: {request.auth_code[:20]}...")
+        
+        # =========================================================
+        # STEP 1: Exchange code for session using Supabase
+        # =========================================================
+        
+        response = supabase.auth.exchange_code_for_session(
+            request.auth_code
+        )
+        
+        user = None
+        session = None
+        
+        if hasattr(response, 'user'):
+            user = response.user
+        elif hasattr(response, 'data') and hasattr(response.data, 'user'):
+            user = response.data.user
+        elif isinstance(response, dict):
+            user = response.get('user') or response.get('data', {}).get('user')
+        
+        if hasattr(response, 'session'):
+            session = response.session
+        elif hasattr(response, 'data') and hasattr(response.data, 'session'):
+            session = response.data.session
+        elif isinstance(response, dict):
+            session = response.get('session') or response.get('data', {}).get('session')
+        
+        if not user:
+            print(f"❌ [GoogleAuth] No user found in response: {response}")
+            raise HTTPException(
+                status_code=400,
+                detail="No user found from OAuth exchange"
+            )
+        
+        print(f"✅ [GoogleAuth] User authenticated: {user.email}")
+        
+        user_id = str(user.id)
+        email = user.email or ""
+        full_name = user.user_metadata.get("full_name", "") if hasattr(user, 'user_metadata') else ""
+        
+        # =========================================================
+        # STEP 2: Check if profile exists
+        # =========================================================
+        
+        profile = CustomerRepository.get_profile(user_id)
+        profile_exists = profile is not None
+        profile_complete = False
+        
+        if profile_exists:
+            missing_fields = []
+            if not profile.get("full_name"):
+                missing_fields.append("full_name")
+            if not profile.get("email"):
+                missing_fields.append("email")
+            if not profile.get("phone"):
+                missing_fields.append("phone")
+            
+            profile_complete = len(missing_fields) == 0
+        
+        # =========================================================
+        # STEP 3: Create user if they don't exist
+        # =========================================================
+        
+        is_new_user = False
+        if not profile_exists:
+            is_new_user = True
+            phone = user.user_metadata.get("phone", "") if hasattr(user, 'user_metadata') else ""
+            CustomerRepository.upsert_profile(
+                user_id=user_id,
+                full_name=full_name or "",
+                phone=phone,
+                address="",
+                pincode="",
+                email=email,
+            )
+            print(f"✅ [GoogleAuth] Created new user profile: {user_id}")
+        
+        # =========================================================
+        # STEP 4: Generate backend JWT token
+        # =========================================================
+        
+        backend_token = CustomerAuthService._create_backend_token(user_id)
+        
+        print(f"✅ [GoogleAuth] Backend token generated")
+        
+        refresh_token = ""
+        if session:
+            if hasattr(session, 'refresh_token'):
+                refresh_token = session.refresh_token
+            elif isinstance(session, dict):
+                refresh_token = session.get('refresh_token', '')
+        
+        return CustomerGoogleExchangeResponse(
+            access_token=backend_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            user_id=user_id,
+            email=email,
+            full_name=full_name or None,
+            profile_exists=profile_exists,
+            profile_complete=profile_complete,
+            is_new_user=is_new_user,
+        )
+        
+    except Exception as e:
+        print(f"❌ [GoogleAuth] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to exchange auth code: {str(e)}"
+        )
+
+
+# =========================================================
+# ✅ CUSTOMER PASSWORD RESET (NEW)
+# =========================================================
+
+from pydantic import BaseModel  # Already imported at top of file
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    redirect_to: str
+
+
+class ResetPasswordConfirmRequest(BaseModel):
+    access_token: str
+    refresh_token: str
+    new_password: str
+
+
+@router.post("/reset-password")
+async def reset_password(request: ResetPasswordRequest):
+    """
+    Send password reset email to the user.
+    """
+    try:
+        print(f"🔐 [PasswordReset] Sending reset email to: {request.email}")
+        
+        # ✅ Use Supabase to send reset email
+        response = supabase.auth.reset_password_for_email(
+            request.email,
+            options={"redirectTo": request.redirect_to}
+        )
+        
+        return {
+            "success": True,
+            "message": "Reset email sent successfully"
+        }
+        
+    except Exception as e:
+        print(f"❌ [PasswordReset] Error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to send reset email: {str(e)}"
+        )
+
+
+@router.post("/reset-password/confirm")
+async def reset_password_confirm(request: ResetPasswordConfirmRequest):
+    """
+    Confirm password reset with new password using access/refresh tokens.
+    """
+    try:
+        print(f"🔐 [PasswordReset] Confirming password reset...")
+        
+        # ✅ Set session with tokens
+        response = supabase.auth.set_session(
+            request.access_token,
+            request.refresh_token
+        )
+        
+        if not response.user:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired tokens"
+            )
+        
+        # ✅ Update password
+        update_response = supabase.auth.update_user({
+            "password": request.new_password
+        })
+        
+        if not update_response.user:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to update password"
+            )
+        
+        # ✅ Generate backend JWT token
+        user_id = str(update_response.user.id)
+        backend_token = CustomerAuthService._create_backend_token(user_id)
+        
+        return {
+            "success": True,
+            "message": "Password updated successfully",
+            "access_token": backend_token
+        }
+        
+    except Exception as e:
+        print(f"❌ [PasswordReset] Error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to update password: {str(e)}"
+        )
+</file>
+
 <file path="app/api/v1/endpoints/customer_booking.py">
 # from fastapi import APIRouter, Depends
 
@@ -30907,6 +32622,346 @@ async def check_customer_service_availability(
 
 
 
+# from app.supabase.client import supabase
+
+
+# class CustomerRepository:
+
+#     # =========================================================
+#     # GET CUSTOMER PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def get_profile(user_id: str):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .select(
+#                 """
+#                 id,
+#                 full_name,
+#                 email,
+#                 phone,
+#                 address,
+#                 pincode,
+#                 referral_code
+#                 """
+#             )
+#             .eq("id", user_id)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CREATE / UPDATE CUSTOMER PROFILE
+#     # =========================================================
+
+#     @staticmethod
+#     def upsert_profile(
+#         user_id: str,
+#         full_name: str,
+#         phone: str,
+#         address: str,
+#         pincode: str,
+#         email: str,
+#         referral_code: str | None = None,
+#         referred_by_id: str | None = None,
+#     ):
+#         data = {
+#             "id": user_id,
+#             "full_name": full_name or None,
+#             "email": email or None,
+#             "phone": phone or None,
+#             "address": address or None,
+#             "pincode": pincode or None,
+#         }
+
+#         # Only update referral fields when explicitly supplied.
+#         # This prevents normal profile updates from clearing
+#         # an existing referral relationship.
+#         if referral_code is not None:
+#             data["referral_code"] = referral_code
+
+#         if referred_by_id is not None:
+#             data["referred_by_id"] = referred_by_id
+
+#         response = (
+#             supabase
+#             .table("profile")
+#             .upsert(data)
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CHECK PROFILE EXISTS
+#     # =========================================================
+
+#     @staticmethod
+#     def profile_exists(
+#         user_id: str,
+#     ) -> bool:
+#         return (
+#             CustomerRepository
+#             .get_profile(user_id)
+#             is not None
+#         )
+
+#     # =========================================================
+#     # GET REFERRER BY REFERRAL CODE
+#     # =========================================================
+
+#     @staticmethod
+#     def get_referrer_by_code(
+#         referral_code: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("profile")
+#             .select("id")
+#             .eq(
+#                 "referral_code",
+#                 referral_code,
+#             )
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # UPDATE SUPABASE AUTH USER
+#     # =========================================================
+
+#     @staticmethod
+#     def update_auth_user(
+#         user_id: str,
+#         auth_payload: dict,
+#     ):
+#         return (
+#             supabase
+#             .auth
+#             .admin
+#             .update_user_by_id(
+#                 user_id,
+#                 auth_payload,
+#             )
+#         )
+
+#     # =========================================================
+#     # UPSERT SIGNUP
+#     # =========================================================
+
+#     @staticmethod
+#     def upsert_signup(
+#         user_id: str,
+#         full_name: str,
+#         email: str,
+#         phone: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("signup")
+#             .upsert(
+#                 {
+#                     "id": user_id,
+#                     "full_name": full_name,
+#                     "email": email,
+#                     "phone": phone,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # UPSERT WALLET
+#     # =========================================================
+
+#     @staticmethod
+#     def upsert_wallet(
+#         user_id: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("wallet")
+#             .upsert(
+#                 {
+#                     "user_id": user_id,
+#                     "balance": 0,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CREATE REFERRAL
+#     # =========================================================
+
+#     @staticmethod
+#     def create_referral(
+#         referrer_id: str,
+#         referred_user_id: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("referrals")
+#             .insert(
+#                 {
+#                     "referrer_id": referrer_id,
+#                     "referred_user_id": referred_user_id,
+#                     "status": "pending",
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # CREATE WELCOME COUPON
+#     # =========================================================
+
+#     @staticmethod
+#     def create_welcome_coupon(
+#         coupon_code: str,
+#         phone: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("coupons")
+#             .insert(
+#                 {
+#                     "coupon_code": coupon_code,
+#                     "discount_amount": 50,
+#                     "is_used": False,
+#                     "phone_number": phone,
+#                 }
+#             )
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # UPDATE WELCOME REWARD METADATA
+#     # =========================================================
+
+#     @staticmethod
+#     def update_welcome_reward(
+#         user_id: str,
+#         coupon_code: str,
+#     ):
+#         try:
+#             return (
+#                 supabase
+#                 .auth
+#                 .admin
+#                 .update_user_by_id(
+#                     user_id,
+#                     {
+#                         "user_metadata": {
+#                             "show_welcome_reward": True,
+#                             "welcome_coupon_code": coupon_code,
+#                         }
+#                     },
+#                 )
+#             )
+#         except Exception:
+#             return None
+
+#     # =========================================================
+#     # GET CUSTOMER COUPON
+#     # =========================================================
+
+#     @staticmethod
+#     def get_customer_coupon(
+#         phone: str,
+#     ):
+#         response = (
+#             supabase
+#             .table("coupons")
+#             .select(
+#                 """
+#                 id,
+#                 coupon_code,
+#                 discount_percentage,
+#                 discount_amount,
+#                 phone_number,
+#                 is_used,
+#                 is_active,
+#                 service_id
+#                 """
+#             )
+#             .or_(
+#                 f"phone_number.eq.{phone},"
+#                 f"phone_number.eq.91{phone},"
+#                 f"phone_number.eq.+91{phone}"
+#             )
+#             .eq("is_active", True)
+#             .eq("is_used", False)
+#             .order(
+#                 "created_at",
+#                 desc=True,
+#             )
+#             .limit(1)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+#     # =========================================================
+#     # GET APP POLICIES
+#     # =========================================================
+
+#     @staticmethod
+#     def get_app_policies():
+#         response = (
+#             supabase
+#             .table("app_policies")
+#             .select(
+#                 """
+#                 user_policies,
+#                 terms_and_conditions
+#                 """
+#             )
+#             .eq("is_active", True)
+#             .limit(1)
+#             .maybe_single()
+#             .execute()
+#         )
+
+#         return response.data
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from app.supabase.client import supabase
 
 
@@ -31224,6 +33279,121 @@ class CustomerRepository:
         )
 
         return response.data
+
+    # =========================================================
+    # ✅ GET USER BY EMAIL (NEW - For Google OAuth)
+    # =========================================================
+
+    @staticmethod
+    def get_user_by_email(email: str):
+        """
+        Find a user by email in the profile table.
+        Used for Google OAuth to check if a user already exists.
+        """
+        response = (
+            supabase
+            .table("profile")
+            .select(
+                """
+                id,
+                full_name,
+                email,
+                phone,
+                address,
+                pincode,
+                referral_code
+                """
+            )
+            .eq("email", email)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # ✅ GET USER BY PHONE (NEW - For Google OAuth)
+    # =========================================================
+
+    @staticmethod
+    def get_user_by_phone(phone: str):
+        """
+        Find a user by phone number in the profile table.
+        Used for Google OAuth to check if a user already exists.
+        """
+        # Clean phone to 10 digits
+        clean_phone = "".join(
+            character
+            for character in phone
+            if character.isdigit()
+        )[-10:]
+
+        response = (
+            supabase
+            .table("profile")
+            .select(
+                """
+                id,
+                full_name,
+                email,
+                phone,
+                address,
+                pincode,
+                referral_code
+                """
+            )
+            .eq("phone", clean_phone)
+            .maybe_single()
+            .execute()
+        )
+
+        return response.data
+
+    # =========================================================
+    # ✅ CREATE OR GET USER FROM GOOGLE OAUTH (NEW)
+    # =========================================================
+
+    @staticmethod
+    def find_or_create_google_user(
+        email: str,
+        full_name: str,
+        phone: str | None = None,
+    ) -> dict:
+        """
+        Find an existing user by email or create a new one for Google OAuth.
+        Returns the user profile.
+        """
+        # 1. Try to find user by email
+        user = CustomerRepository.get_user_by_email(email)
+        
+        if user:
+            return user
+        
+        # 2. Try to find user by phone (if provided)
+        if phone:
+            user = CustomerRepository.get_user_by_phone(phone)
+            if user:
+                # Update email if phone exists but email is different
+                CustomerRepository.upsert_profile(
+                    user_id=user["id"],
+                    full_name=user.get("full_name", full_name),
+                    phone=user.get("phone", phone),
+                    address=user.get("address", ""),
+                    pincode=user.get("pincode", ""),
+                    email=email,
+                )
+                # Get updated profile
+                return CustomerRepository.get_profile(user["id"])
+        
+        # 3. Create new user
+        # Generate a UUID for the new user
+        import uuid
+        user_id = str(uuid.uuid4())
+        
+        # Create auth user first (via Supabase Auth)
+        # This will be handled in the service layer
+        
+        return None
 </file>
 
 <file path="app/api/v1/api.py">
@@ -31966,6 +34136,13 @@ from app.api.v1.endpoints import customer_wallet
 
 from app.api.v1.endpoints import customer_referral
 
+from fastapi import APIRouter
+from app.api.v1.endpoints.customer_auth import router as customer_auth_router
+from app.api.v1.endpoints.customer_offers import router as customer_offers_router
+
+from app.api.v1.endpoints.customer_schedule import router as customer_schedule_router
+
+
 # =========================================================
 # SYSTEM
 # =========================================================
@@ -32128,6 +34305,24 @@ api_router.include_router(
     customer_referral.router,
     prefix="/customer",
     tags=["Customer Referral"],
+)
+
+api_router.include_router(
+    customer_auth_router,
+    prefix="/customer/auth",
+    tags=["Customer Authentication"],
+)
+
+api_router.include_router(
+    customer_offers_router,
+    prefix="/customer",
+    tags=["Customer Offers"],
+)
+
+api_router.include_router(
+    customer_schedule_router,
+    prefix="/customer",
+    tags=["Customer Schedule"],
 )
 </file>
 
