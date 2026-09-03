@@ -701,6 +701,9 @@ from app.api.v1.endpoints.customer_auth import (
     router as customer_auth_router,
 )
 
+from app.api.v1.endpoints.partner_policy import (
+    router as partner_policy_router,
+)
 # from app.api.v1.endpoints.staff_notification import (
 #     router as staff_notification_router,
 # )
@@ -716,6 +719,7 @@ api_router.include_router(
     prefix="/system",
     tags=["System"],
 )
+
 
 
 # =========================================================
@@ -739,6 +743,11 @@ api_router.include_router(
     tags=["Partner"],
 )
 
+api_router.include_router(
+    partner_policy_router,
+    prefix="/partner",
+    tags=["Partner Policy"],
+)
 
 # =========================================================
 # PARTNER DUTY

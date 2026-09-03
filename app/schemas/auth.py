@@ -15,6 +15,8 @@ class LoginResponse(BaseModel):
 class CurrentUserResponse(BaseModel):
     id: str
     email: str
+    terms_accepted: bool = False
+    privacy_policy_accepted: bool = False
 
 
 class LogoutResponse(BaseModel):
