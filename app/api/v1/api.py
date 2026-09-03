@@ -747,6 +747,10 @@ from app.api.v1.endpoints.customer_push_token import (
     router as customer_push_token_router,
 )
 
+from app.api.v1.endpoints.partner_policy import (
+    router as partner_policy_router,
+)
+
 
 # =========================================================
 # SYSTEM
@@ -934,4 +938,9 @@ api_router.include_router(
     customer_push_token_router,
     prefix="/customer",
     tags=["Customer Push Token"],
+)
+
+api_router.include_router(
+    partner_policy_router,
+    tags=["Partner Policy"],
 )

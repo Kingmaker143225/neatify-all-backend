@@ -83,6 +83,8 @@ from app.schemas.auth import (
 
 from app.services.auth_service import AuthService
 
+from app.supabase.client import supabase
+
 
 router = APIRouter()
 
@@ -109,9 +111,34 @@ async def login(
 async def get_me(
     current_user=Depends(get_current_user),
 ):
+
+    staff_response = (
+        supabase
+        .table("staff_profile")
+        .select(
+            """
+            terms_accepted,
+            privacy_policy_accepted
+            """
+        )
+        .eq("id", str(current_user.id))
+        .single()
+        .execute()
+    )
+
+    staff = staff_response.data or {}
+
     return {
         "id": str(current_user.id),
         "email": current_user.email,
+        "terms_accepted": staff.get(
+            "terms_accepted",
+            False,
+        ),
+        "privacy_policy_accepted": staff.get(
+            "privacy_policy_accepted",
+            False,
+        ),
     }
 
 
