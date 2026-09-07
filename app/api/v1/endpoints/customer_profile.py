@@ -65,6 +65,8 @@ async def update_customer_profile(
         .update_profile(
             customer=current_customer,
             full_name=request.full_name,
+            email=request.email,
+
             phone=request.phone,
             address=request.address,
             pincode=request.pincode,

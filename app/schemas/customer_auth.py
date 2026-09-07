@@ -392,12 +392,24 @@ class CustomerVerifyOtpRequest(BaseModel):
     otp: str
 
 
+# class CustomerVerifyOtpResponse(BaseModel):
+#     success: bool
+#     is_new_user: bool
+#     email: str | None = None
+#     temp_password: str | None = None
+#     message: str
+
 class CustomerVerifyOtpResponse(BaseModel):
     success: bool
     is_new_user: bool
     email: str | None = None
     temp_password: str | None = None
     message: str
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user_id: str
 
 
 class CustomerLogoutResponse(BaseModel):

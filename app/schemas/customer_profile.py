@@ -17,6 +17,9 @@ class CustomerProfileUpdateRequest(BaseModel):
         min_length=1,
         max_length=100,
     )
+
+    email: str
+
     phone: str
     address: str = ""
     pincode: str = ""
