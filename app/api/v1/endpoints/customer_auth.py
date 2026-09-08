@@ -490,6 +490,27 @@ from app.dependencies.customer_auth import (
     get_current_customer,
 )
 
+# from app.schemas.customer_auth import (
+#     CustomerLoginRequest,
+#     CustomerLoginResponse,
+#     CustomerSignupRequest,
+#     CustomerSignupResponse,
+#     CustomerMeResponse,
+#     CustomerProfileCompletenessResponse,
+#     CustomerSendOtpRequest,
+#     CustomerSendOtpResponse,
+#     CustomerVerifyOtpRequest,
+#     CustomerVerifyOtpResponse,
+#     CustomerLogoutResponse,
+#     CustomerRewardsResponse,
+#     CustomerRewardsUpdateRequest,
+#     # ✅ Google OAuth schemas
+#     CustomerGoogleOAuthUrlRequest,
+#     CustomerGoogleOAuthUrlResponse,
+#     CustomerGoogleExchangeRequest,
+#     CustomerGoogleExchangeResponse,
+# )
+
 from app.schemas.customer_auth import (
     CustomerLoginRequest,
     CustomerLoginResponse,
@@ -497,14 +518,22 @@ from app.schemas.customer_auth import (
     CustomerSignupResponse,
     CustomerMeResponse,
     CustomerProfileCompletenessResponse,
+
+    # Existing OTP
     CustomerSendOtpRequest,
     CustomerSendOtpResponse,
     CustomerVerifyOtpRequest,
     CustomerVerifyOtpResponse,
+
+    # New MSG91 Widget
+    CustomerMSG91WidgetVerifyRequest,
+    CustomerMSG91WidgetVerifyResponse,
+
     CustomerLogoutResponse,
     CustomerRewardsResponse,
     CustomerRewardsUpdateRequest,
-    # ✅ Google OAuth schemas
+
+    # Google OAuth schemas
     CustomerGoogleOAuthUrlRequest,
     CustomerGoogleOAuthUrlResponse,
     CustomerGoogleExchangeRequest,
@@ -986,3 +1015,18 @@ async def reset_password_confirm(request: ResetPasswordConfirmRequest):
             status_code=400,
             detail=f"Failed to update password: {str(e)}"
         )
+
+# =========================================================
+# MSG91 WIDGET CUSTOMER AUTHENTICATION
+# =========================================================
+
+@router.post(
+    "/msg91/verify",
+    response_model=CustomerMSG91WidgetVerifyResponse,
+)
+async def customer_msg91_widget_verify(
+    request: CustomerMSG91WidgetVerifyRequest,
+):
+    return CustomerAuthService.verify_msg91_widget_token(
+        access_token=request.access_token,
+    )
