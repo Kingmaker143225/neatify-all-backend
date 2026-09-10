@@ -917,6 +917,30 @@ class CustomerRepository:
     # GET APP POLICIES
     # =========================================================
 
+    # @staticmethod
+    # def get_app_policies():
+    #     response = (
+    #         supabase
+    #         .table("app_policies")
+    #         .select(
+    #             """
+    #             user_policies,
+    #             terms_and_conditions
+    #             """
+    #         )
+    #         .eq("is_active", True)
+    #         .limit(1)
+    #         .maybe_single()
+    #         .execute()
+    #     )
+
+    #     return response.data
+
+
+    # =========================================================
+    # GET APP POLICIES (CUSTOMER)
+    # =========================================================
+
     @staticmethod
     def get_app_policies():
         response = (
@@ -929,10 +953,18 @@ class CustomerRepository:
                 """
             )
             .eq("is_active", True)
+            .eq("app_type", "customer")
+            .order(
+                "updated_at",
+                desc=True,
+            )
             .limit(1)
             .maybe_single()
             .execute()
         )
+
+        if response is None:
+            return None
 
         return response.data
 

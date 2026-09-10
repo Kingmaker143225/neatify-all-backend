@@ -747,6 +747,13 @@ from app.api.v1.endpoints.customer_push_token import (
     router as customer_push_token_router,
 )
 
+from app.api.v1.endpoints.customer_promotional_banner import (
+    router as customer_promotional_banner_router,
+)
+
+# from app.api.v1.endpoints import (
+#     customer_promotional_banner,
+# )
 
 # =========================================================
 # SYSTEM
@@ -886,6 +893,11 @@ api_router.include_router(
     prefix="/customer",
     tags=["Customer Home"],
 )
+api_router.include_router(
+    customer_promotional_banner_router,
+    prefix="/customer",
+    tags=["Customer Promotional Banners"],
+)
 
 api_router.include_router(
     customer_coupon.router,
@@ -912,11 +924,11 @@ api_router.include_router(
     tags=["Customer Referral"],
 )
 
-api_router.include_router(
-    customer_auth_router,
-    prefix="/customer/auth",
-    tags=["Customer Authentication"],
-)
+# api_router.include_router(
+#     customer_auth_router,
+#     prefix="/customer/auth",
+#     tags=["Customer Authentication"],
+# )
 
 api_router.include_router(
     customer_offers_router,
